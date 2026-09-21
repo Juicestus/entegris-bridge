@@ -1,0 +1,2965 @@
+# Examples of my programming style
+              
+These are some examples of some projects I made for a course last semester. This gives you a good idea for my style of writing code. 
+ 
+## File Tree / Project Structure
+- HW1P3_Submission/
+  - HTMLParserBase.h
+  - HW1P3.vcxproj.user
+  - Util.cpp
+  - pch.h
+  - HW1P3.vcxproj.filters
+  - HW1P3.sln
+  - Worker.cpp
+  - HttpFormat.h
+  - CSCE-612 HW 1 Report.pdf
+  - HW1P3.cpp
+  - HW1P3.vcxproj
+  - UrlParserHttp.h
+  - Worker.h
+  - IOCPSocket.h
+  - UrlParserHttp.cpp
+  - pch.cpp
+  - Crawler.h
+  - Util.h
+  - IOCPSocket2.h
+  - IOCPSocket2.cpp
+  - HttpFormat.cpp
+  - Crawler.cpp
+  - IOCPSocket.cpp
+- HW2_Submission/
+  - HW2.vcxproj.user
+  - utils.h
+  - HW2.cpp
+  - pch.h
+  - HW2.sln
+  - HW2.vcxproj.filters
+  - pch.cpp
+  - CSCE-612 HW 2 Report.pdf
+  - dns.h
+  - HW2.vcxproj
+- HW3P3_Submission/
+  - CSCE-612 HW 3 Report.pdf
+  - pch.h
+  - Checksum.cpp
+  - HW3P3.sln
+  - HW3P3.cpp
+  - HW3P3.vcxproj.filters
+  - HW3P3.vcxproj.user
+  - SenderSocket.h
+  - pch.cpp
+  - SenderSocket.cpp
+  - Util.h
+  - Checksum.h
+  - HW3P3.vcxproj
+ 
+## Source File Contents
+ 
+ 
+### HW1P3_Submission/HTMLParserBase.h
+ 
+#pragma once
+ 
+#ifdef _WIN64
+#ifdef _DEBUG
+#pragma comment (lib, "HTMLParser_debug_x64.lib")
+#else
+#pragma comment (lib, "HTMLParser_release_x64.lib")
+#endif
+#else
+#ifdef _DEBUG
+#error Debug 32-bit not supported by the HTML parser
+#else
+#error Release 32-bit not supported by the HTML parser
+#endif
+#endif
+ 
+#define MAX_HOST_LEN		256
+#define MAX_URL_LEN			2048
+#define MAX_REQUEST_LEN		2048
+ 
+class HTMLParserBase
+{
+public:
+	HTMLParserBase();
+	~HTMLParserBase();
+ 
+	// input: 
+	//   - htmlCode: a pointer to the page buffer
+	//   - codeSize: html page size
+	//   - baseURL: base URL (starting with "http://")
+	//   - urlLen: size of base URL
+	// output:
+	//   - nLinks: number of parsed URLs, could be negative in case of error
+	// return: a pointer to the buffer of parsed URLs, this buffer is allocated internally, 
+	//         do not attempt to release it
+	char* Parse(char* htmlCode, int codeSize, char* baseURL, int urlLen, int* nLinks);
+ 
+private:
+	void* parser;
+	void* buffer;
+};
+ 
+### HW1P3_Submission/Util.cpp
+ 
+#include "pch.h"
+#include "Util.h"
+ 
+std::vector<char*> ReadFileLines(const char* path)
+{
+	std::vector<char*> ret;
+	
+	// in HTMLParserTest example CreateFile -> CreateFileA, in this project -> CreateFileW by default 
+	// because UNICODE defined, so im going to just try with CreateFileA directly
+	HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+ 
+	if (file == INVALID_HANDLE_VALUE)
+	{
+		FATAL("CreateFile failed with %d", GetLastError());
+		return ret;
+	}
+ 
+	LARGE_INTEGER li;
+	if (!GetFileSizeEx(file, &li))
+	{
+		FATAL("CreateFileSizeEx failed with %d", GetLastError());
+		CloseHandle(file);
+		return ret;
+	}
+	DWORD fsize = (DWORD)li.QuadPart, bread = 0;
+	
+	printf("Opened %s with size %d\n", path, fsize);
+ 
+	char* fbuf = (char*)malloc(fsize+1);
+	fbuf[fsize] = '\0';
+ 
+	if (!ReadFile(file, fbuf, fsize, &bread, NULL) || bread != fsize)
+	{
+		FATAL("ReadFile failed with %d", GetLastError());
+		CloseHandle(file);
+		return ret;
+	}
+ 
+	CloseHandle(file);
+	
+	for (char* k = fbuf, *n; ; )
+	{
+		if ((n = strchr(k, '\n')) == nullptr) 
+		{
+			//ret.push_back(extractstr(k));
+			if (strlen(k) > 0)
+			{
+				ret.push_back(k);
+			}
+			break;
+		}
+		else {
+			//ret.push_back(extractstrn(k, n-k));
+			if (n > fbuf && n[-1] == '\r')
+				n[-1] = 0;
+			else *n = 0;
+			ret.push_back(k);
+		}
+		k = n + 1;
+	}
+ 
+	//free(fbuf);
+ 
+	return ret;
+}
+ 
+ 
+### HW1P3_Submission/pch.h
+ 
+// pch.h: This is a precompiled header file.
+// Files listed below are compiled only once, improving build performance for future builds.
+// This also affects IntelliSense performance, including code completion and many code browsing features.
+// However, files listed here are ALL re-compiled if any one of them is updated between builds.
+// Do not add files here that you will be updating frequently as this negates the performance advantage.
+ 
+#ifndef PCH_H
+#define PCH_H
+ 
+// add headers that you want to pre-compile here
+#include <iostream>
+#include <string>
+#include <vector>
+#include <queue>
+#include <set>
+ 
+#include <cstdlib>
+ 
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+ 
+ 
+#endif //PCH_H
+ 
+ 
+### HW1P3_Submission/Worker.cpp
+ 
+#include "pch.h"
+#include "Worker.h"
+#include "Crawler.h"
+ 
+#define TAMUEDU "tamu.edu"
+ 
+DWORD WINAPI Worker::Start(LPVOID ptr)
+{
+	Crawler* crawler = (Crawler*)ptr;
+	int id = (int)InterlockedIncrement(&crawler->active_threads);
+ 
+	Worker worker(id, crawler);
+	worker.Run();
+ 
+	InterlockedDecrement(&crawler->active_threads);
+ 
+	return 0;
+}
+ 
+void Worker::Run()
+{
+	while (true)
+	{
+		//if (!(crawler->urls_mutex)) break;
+		char* url;
+		EnterCriticalSection(&crawler->urls_mutex);
+		if (crawler->urls.empty())
+		{
+			url = nullptr;
+		}
+		else
+		{
+			url = crawler->urls.front();
+			crawler->urls.pop();
+		}
+		LeaveCriticalSection(&crawler->urls_mutex);
+ 
+		if (!url) break;
+		InterlockedIncrement(&crawler->stats.extracted);
+		Crawl(url);
+	}
+}
+ 
+int Worker::Crawl(char* url)
+{
+	//std::cout << "URL: " << url << "\n";
+	//printf("\n%s\n\n", url);
+ 
+	ParsedURL parsed(url);
+	if (!parsed.valid) return 1;
+ 
+	//parsed.Print();
+ 
+	if (crawler->DuplicateHost(parsed))
+	{
+		return 1;
+	}
+	InterlockedIncrement(&crawler->stats.unique_hosts);
+ 
+	if (socket.DNS(parsed.host, parsed.port))
+	{
+		return 1;
+	}
+	InterlockedIncrement(&crawler->stats.dns_success);
+ 
+	if (crawler->DuplicateAddr(socket.addr()))
+	{
+		return 1;
+	}
+	InterlockedIncrement(&crawler->stats.unique_ips);
+ 
+	/*
+	* ROBOT REQUEST
+	*/
+ 
+	//std::cout << "        Connecting on robots... ";
+	socket.Reset();
+	if (socket.Connect())
+	{
+		return 1;
+	}
+ 
+	char* req = EncodeHttpRobotsRequest(parsed);
+	if (socket.Send(req))
+	{
+		free(req);
+		return 1;
+	}
+	free(req);
+ 
+	if (socket.Recv())
+	{
+		return 1;
+	}
+ 
+	HttpResponse resp = DecodeHttpResponse(socket.data(), socket.size());
+	if (resp.status != 404)
+	{
+		return 1;
+	}
+	InterlockedIncrement(&crawler->stats.robots_passed);
+ 
+	/*
+	* PAGE REQUEST
+	*/
+ 
+	//std::cout << "      * Connecting on page... ";
+	socket.Reset();
+	if (socket.Connect() != 0)
+	{
+		return 1;
+	}
+ 
+	req = EncodeHttpRequest(parsed);
+	if (socket.Send(req))
+	{
+		free(req);
+		return 1;
+	}
+	free(req);
+ 
+	if (socket.Recv())
+	{
+		return 1;
+	}
+	//std::cout << "Read " << socket.size() << " bytes from socket:\n\n";
+ 
+ 
+	resp = DecodeHttpResponse(socket.data(), socket.size());
+	if (resp.status < 0)
+	{
+		return 1;
+	}
+ 
+	if (resp.status >= 500)			InterlockedIncrement(&crawler->stats.s5);
+	else if (resp.status >= 400)	InterlockedIncrement(&crawler->stats.s4);
+	else if (resp.status >= 300)	InterlockedIncrement(&crawler->stats.s3);
+	else if (resp.status >= 200)	InterlockedIncrement(&crawler->stats.s2);
+	else							InterlockedIncrement(&crawler->stats.s_other);	
+ 
+	//printf("HttpResponse:\n\tstatus = %d\n\tlength = %d\n\tbody:\n%s\n",
+		//resp.status, resp.len, resp.body);
+ 
+	InterlockedAdd(&crawler->stats.bytes_elapsed, socket.size());
+	InterlockedAdd(&crawler->stats.total_bytes, socket.size());
+	InterlockedIncrement(&crawler->stats.pages_elapsed);
+ 
+	size_t tamulen = strlen(TAMUEDU);
+ 
+	if (resp.Is2XX())
+	{
+		char* urlbuf = extractstr(url);
+		int nlinks = 0;
+		char* linkbuf = html_parser.Parse(resp.body, resp.len, urlbuf, strlen(urlbuf), &nlinks);
+		for (int i = 0; i < nlinks; i++)
+		{
+			char* linkcopy = (linkbuf);
+			ParsedURL parsedlink(linkcopy);
+			if (!parsedlink.valid) continue;
+			size_t hostlen = strlen(parsedlink.host);
+			if (hostlen >= tamulen && strcmp(parsedlink.host + hostlen - tamulen, TAMUEDU) == 0)
+			{
+				InterlockedIncrement(&crawler->stats.ntamu);
+			}
+			linkbuf += strlen(linkbuf) + 1;
+		}
+ 
+		free(urlbuf);
+ 
+		InterlockedIncrement(&crawler->stats.crawled);
+		InterlockedAdd(&crawler->stats.nlinks, nlinks);
+	}
+ 
+	//printf("----------------------------------------\n");
+	//printf("%s\n", resp.header);
+ 
+	return 0;
+}
+ 
+ 
+ 
+### HW1P3_Submission/HttpFormat.h
+ 
+#pragma once
+ 
+#include "Util.h"
+#include "UrlParserHttp.h"
+ 
+char* EncodeHttpRequest(ParsedURL& url);
+ 
+char* EncodeHttpRobotsRequest(ParsedURL& url);
+ 
+struct HttpResponse {
+	int status;			// HTTP status code or -1 on error from DecodeHttpResponse
+	char* header;		// cstr
+	char* body;			// buffer
+	size_t len;			// body length
+ 
+	HttpResponse(int status) : status(status), header((char*)""), 
+			body((char*)""), len(0) {}
+ 
+	inline bool Is2XX() { return status >= 200 && status < 300;  }
+};
+ 
+#define	CHECK_CONTENT_LENGTH	false	
+#define CONTENT_LENGTH			"Content-Length:"
+#define BODY_MARKER				"\r\n\r\n"
+ 
+HttpResponse DecodeHttpResponse(char* buf, size_t len);
+ 
+ 
+### HW1P3_Submission/HW1P3.cpp
+ 
+ 
+#include "pch.h"
+#include <iostream>
+#include <string>
+#include <vector>
+#include <set>
+ 
+#include "Util.h"
+#include "UrlParserHttp.h"	
+#include "IOCPSocket.h"
+#include "HttpFormat.h"
+#include "HTMLParserBase.h"
+#include "Crawler.h"
+#include "Worker.h"
+ 
+int main(int argc, char** argv)
+{
+ 
+	int ret = 1;
+	if (argc < 3)
+	{
+		FATAL("Usage: .\\HW1P3.exe <n threads> <url file>");
+		return 1;
+	}
+	int nthreads = atoi(argv[1]);	// check err condition here?
+	if (nthreads < 0)
+	{
+		FATAL("Usage: .\\HW1P2.exe <n threads> <url file>");
+		return 1;
+	}
+ 
+	IOCPSocket::InitWinSock();
+	//IOCPSocket2::InitWinSock();
+ 
+	Crawler crawler;
+ 
+	std::vector<char*> urls = ReadFileLines(argv[2]);
+ 
+	crawler.Push(urls);
+	crawler.Crawl(nthreads);
+ 
+	//IOCPSocket2::CloseWinSock();
+	IOCPSocket::CloseWinSock();
+ 
+ 
+}
+ 
+ 
+ 
+### HW1P3_Submission/UrlParserHttp.h
+ 
+#pragma once
+ 
+#include <iostream>
+#include <string>
+#include <vector>
+#include <cstring>
+ 
+#include "Util.h"
+ 
+#include "HTMLParserBase.h"	// limit for defines
+ 
+ 
+/* 
+ * This is a simpler version of ParsedURL from UrlParser 
+ * that only handles HTTP urls and only provides the info
+ * we need for our purposes.
+ */
+struct ParsedURL {
+	// scheme://host[:port][/path][?query][#fragment] 
+	char*		host;
+	int16_t		port;			
+	char*		path;			
+	char*		query;
+	bool		valid;
+ 
+	ParsedURL() : port(80), valid(false), path((char*)"/"), 
+			host((char*)""),query((char*)"") {}
+	ParsedURL(char* raw);
+ 
+	inline void Print()
+	{/*
+		return
+			"Scheme:\t" + scheme + "\nHost:\t" + host + "\nPort:\t"
+			+ std::to_string(port) + "\nPath:\t" + path
+			+ "\nQuery:\t" + query + "\nValid:\t" + BOOLYN(valid) + "\n";*/
+		//printf("Host:\t%s\nPort:\t%d\nPath\t%s\nQuery:\t%s\nValid:\t%s\n",
+			//host, port, path, query, BOOLYN(valid));
+	}
+};
+ 
+ 
+ 
+### HW1P3_Submission/Worker.h
+ 
+#pragma once
+ 
+#include "Util.h"
+#include "UrlParserHttp.h"	
+#include "IOCPSocket.h"
+#include "IOCPSocket2.h"
+#include "HttpFormat.h"
+#include "HTMLParserBase.h"
+ 
+class Crawler;
+ 
+class Worker {
+ 
+	IOCPSocket socket;
+	//IOCPSocket2 socket;
+	HTMLParserBase html_parser;
+ 
+	int id;
+	Crawler* crawler;
+ 
+	int Crawl(char* url);		// original Crawler::Crawl from part 2
+ 
+	Worker(int id, Crawler* crawler) : id(id), crawler(crawler), socket(10 * 1000, 2 << 20) {}
+	void Run();
+ 
+public:
+ 
+	static DWORD WINAPI Start(LPVOID ptr);
+};
+ 
+ 
+ 
+ 
+### HW1P3_Submission/IOCPSocket.h
+ 
+#pragma once
+ 
+#include <cstdlib>
+ 
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+ 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+ 
+#include "Util.h"
+ 
+#define INITIAL_BUF_SIZE	(32*4096)
+#define THRESHOLD			(4096)
+ 
+#define MEMSET_BUFFERS true
+ 
+class IOCPSocket {
+	SOCKET	sock;
+	char*	buf;
+	size_t	pos;
+	size_t	cap;
+	size_t	max_cap;
+	HANDLE	cp;			// completion port
+	int		timeout;
+	struct sockaddr_in server;
+ 
+public:
+	IOCPSocket(int timeout, size_t max_cap) 
+		: timeout(timeout), max_cap(max_cap), sock(INVALID_SOCKET), cap(INITIAL_BUF_SIZE), pos(0)
+	{
+		cp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 0);
+ 
+		// create this buffer once, then possibly reuse for multiple connections in Part 3 
+		// use queue, min/max heap to give back blocks and get new blocks?
+		buf = (char*)malloc(cap);
+		assert(buf);
+#if MEMSET_BUFFERS
+		memset(buf, 0, cap);
+#endif
+	}
+	~IOCPSocket()
+	{
+		free(buf);
+		closesocket(sock);
+	}
+ 
+	int DNS(char* host, uint16_t port);
+	int Connect();
+	
+	int Send(char* buf);
+	int Recv();
+	//int TestRecvIOCP();
+ 
+	inline void Reset()
+	{
+		pos = 0;
+		closesocket(sock);
+		if (cap > INITIAL_BUF_SIZE)
+		{
+			cap = INITIAL_BUF_SIZE;
+			free(buf);
+			buf = (char*)malloc(cap);
+			assert(buf);
+#if MEMSET_BUFFERS
+			memset(buf, 0, cap);
+#endif
+		}
+	}
+ 
+	static int InitWinSock();
+ 
+	inline static int CloseWinSock()
+	{
+		return WSACleanup();
+	}
+	
+	// using the same getter names from the STL like vector
+	inline char*	data()	{	return buf;	}
+	inline size_t	size()	{	return pos;	}
+ 
+	inline int addr() { return server.sin_addr.S_un.S_addr; }
+};
+ 
+ 
+ 
+### HW1P3_Submission/UrlParserHttp.cpp
+ 
+#include "pch.h"
+#include "UrlParserHttp.h"
+ 
+ParsedURL::ParsedURL(char* _raw) 
+	// Correctly initialize defaults
+	: port(80), valid(false), path((char*)"/"), host((char*)""), query((char*)"") 
+{
+	if (strlen(_raw) > MAX_URL_LEN)
+	{
+		//FATAL("failed because URL is too long");
+		return;
+	}
+	char* raw = extractstr(_raw);	// kind of a hack, allows us to modify raw in place
+									// even if it is a string literal
+	// Notes from class on Thu:
+	//	1. scheme == http, case INsensitive
+	//	2. throw away fragment: *strchr('#') = 0
+	//	3. suggested order:
+	//		a. find # using strchr and truncate
+	//		b. find ?, extract from ? to end, truncate
+	//		c. find /, extract from / to end, truncate
+	//		d. find :, extract from : to end, truncate
+	//	4. host should be what is left
+ 
+	//std::cout << "        Parsing URL... ";
+	// (1) ... I searched for this function forever
+	if (_strnicmp(raw, "http://", 7))
+	{
+		//FATAL("failed with invalid scheme");
+		return;
+	}
+	raw += 7;
+	// (2/3a)
+	char* cptr;
+	if ((cptr = strchr(raw, '#')))
+		*cptr = 0;
+	// (3b)
+	if ((cptr = strchr(raw, '?')))
+	{
+		//query = extractstr(cptr + 1);	 // no ? sign
+		query = extractstr(cptr);	 // including the ? sign so it formats correctly
+		*cptr = 0;
+	}
+	// (3c)
+	if ((cptr = strchr(raw, '/')))
+	{
+		path = extractstr(cptr);
+		*cptr = 0;
+	}
+	// (4c)
+	if ((cptr = strchr(raw, ':')))
+	{
+		char* end;
+		port = (int)strtol(cptr+1, &end, 10);
+		// we check end to see if strtol failed and to make sure
+		// that there are no random chars after the number 
+		if (*end || port <= 0 || port > UINT16_MAX)
+		{
+			//FATAL("failed with invalid port");
+			return;
+		}
+		*cptr = 0;
+	}
+	// (5)
+	host = extractstr(raw);
+	if (strlen(host) > MAX_HOST_LEN)
+	{
+		//FATAL("failed because host is too long");
+		return;
+	}
+	// done
+	//printf("host %s, port %d, request %s%s\n", host, port, path, query);
+	valid = true;
+}
+ 
+ 
+### HW1P3_Submission/pch.cpp
+ 
+// pch.cpp: source file corresponding to the pre-compiled header
+ 
+#include "pch.h"
+ 
+// When you are using pre-compiled headers, this source file is necessary for compilation to succeed.
+ 
+ 
+### HW1P3_Submission/Crawler.h
+ 
+#pragma once
+ 
+#include "Util.h"
+#include "UrlParserHttp.h"	
+#include "IOCPSocket.h"
+#include "IOCPSocket2.h"
+#include "HttpFormat.h"
+#include "HTMLParserBase.h"
+#include "Worker.h"
+ 
+#include <set>
+#include <queue>
+ 
+#ifdef _DEBUG	// only be able to do this define in debug mode
+#define BYPASS_HOST_UNIQUENESS false
+#define BYPASS_ADDR_UNIQUENESS false
+#endif
+ 
+ 
+struct Counters {
+	volatile LONG extracted;		// E
+	volatile LONG unique_hosts;		// H
+	volatile LONG dns_success;		// D
+	volatile LONG unique_ips;		// I
+	volatile LONG robots_passed;	// R
+	volatile LONG crawled;			// C
+	volatile LONG nlinks;			// L
+	volatile LONG ntamu;
+ 
+	volatile LONG s2;			// status 2xx
+	volatile LONG s3;			// status 3xx
+	volatile LONG s4;			// status 4xx
+	volatile LONG s5;			// status 5xx
+	volatile LONG s_other;		// other status code
+ 
+	volatile LONG pages_elapsed;
+	volatile LONG bytes_elapsed;
+	volatile LONG total_bytes;
+};
+ 
+class Crawler {
+	friend class Worker;
+ 
+	std::set<std::string> seen_hosts{};
+	std::set<int> seen_addrs{};
+	std::queue<char*> urls;
+ 
+	CRITICAL_SECTION seen_hosts_mutex;
+	CRITICAL_SECTION seen_addrs_mutex;
+	CRITICAL_SECTION urls_mutex;
+ 
+	Counters stats;
+ 
+	volatile LONG active_threads;
+	HANDLE event_quit;
+	clock_t start_t;
+ 
+	static DWORD WINAPI StatsThread(LPVOID crawler);
+ 
+	bool DuplicateHost(ParsedURL url);
+	bool DuplicateAddr(int ip);
+ 
+public:
+	Crawler()	 : active_threads(0)
+	{
+		memset(&stats, 0, sizeof(Counters));
+ 
+		InitializeCriticalSection(&seen_hosts_mutex);
+		InitializeCriticalSection(&seen_addrs_mutex);
+		InitializeCriticalSection(&urls_mutex);
+		event_quit = CreateEvent(NULL, false, false, NULL);
+	}
+ 
+	~Crawler()
+	{
+		DeleteCriticalSection(&seen_hosts_mutex);
+		DeleteCriticalSection(&seen_addrs_mutex);
+		DeleteCriticalSection(&urls_mutex);
+		CloseHandle(event_quit);
+	}
+ 
+	void Push(const std::vector<char*>& _urls)
+	{
+		EnterCriticalSection(&urls_mutex);
+		for (char* url : _urls)
+			urls.push(url);
+		LeaveCriticalSection(&urls_mutex);
+	}
+ 
+	void Crawl(int nthreads);
+ 
+};
+ 
+ 
+ 
+ 
+### HW1P3_Submission/Util.h
+ 
+#pragma once
+ 
+#include <iostream>
+#include <cassert>
+#include <vector>
+#include "Windows.h"
+ 
+#define FATAL(FMT, ...)	fprintf(stderr, FMT "\n", __VA_ARGS__)
+ 
+#define BOOLTF(BOOL)	( (BOOL) ? "TRUE" : "FALSE" )		// bool -> true/false string
+#define BOOLYN(BOOL)	( (BOOL) ? "YES" : "NO" )			// bool -> yes/no string 
+ 
+__forceinline char* extractstrn(char* src, int n)
+{
+	char* dst = (char*)malloc(n + 1);
+	//if (!dst) return nullptr;
+	assert(dst);
+	dst[n] = 0;
+	// I hate the microsoft _s functions 
+	// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/strncpy-s-strncpy-s-l-wcsncpy-s-wcsncpy-s-l-mbsncpy-s-mbsncpy-s-l?view=msvc-170&devlangs=cpp&f1url=%3FappId%3DDev17IDEF1%26l%3DEN-US%26k%3Dk(STRING%2Fstrncpy_s)%3Bk(strncpy_s)%3Bk(DevLang-C%2B%2B)%3Bk(TargetOS-Windows)%26rd%3Dtrue#remarks
+	strncpy_s(dst, n+1, src, n);
+	return dst;
+}
+__forceinline char* extractstr(char* src)
+{
+	return extractstrn(src, strlen(src));
+}
+ 
+std::vector<char*> ReadFileLines(const char* path);
+ 
+ 
+ 
+### HW1P3_Submission/IOCPSocket2.h
+ 
+#pragma once
+#if 1
+ 
+#include <cstdlib>
+ 
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+ 
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+ 
+#include "Util.h"
+ 
+#define INITIAL_BUF_SIZE	(32*4096)
+#define THRESHOLD			(4096)
+ 
+#define MEMSET_BUFFERS true
+ 
+class IOCPSocket2 {
+	SOCKET	sock;
+	char* buf;
+	size_t	pos;
+	size_t	cap;
+	size_t	max_cap;
+	int		timeout;
+	struct sockaddr_in server;
+ 
+	OVERLAPPED ov{};
+	WSABUF cpbuf{};
+ 
+	static HANDLE cp;
+ 
+public:
+	IOCPSocket2(int timeout, size_t max_cap)
+		: timeout(timeout), max_cap(max_cap), sock(INVALID_SOCKET), cap(INITIAL_BUF_SIZE), pos(0)
+	{
+		// create this buffer once, then possibly reuse for multiple connections in Part 3 
+		// use queue, min/max heap to give back blocks and get new blocks?
+		buf = (char*)malloc(cap);
+		assert(buf);
+#if MEMSET_BUFFERS
+		memset(buf, 0, cap);
+#endif
+	}
+	~IOCPSocket2()
+	{
+		free(buf);
+		closesocket(sock);
+	}
+ 
+	int DNS(char* host, uint16_t port);
+	int Connect();
+	
+	int Send(char* buf);
+ 
+	int Recv();
+	int StartRecv();
+	int ProcessRecv();
+ 
+	inline void Reset()
+	{
+		pos = 0;
+		closesocket(sock);
+		if (cap > INITIAL_BUF_SIZE)
+		{
+			cap = INITIAL_BUF_SIZE;
+			free(buf);
+			buf = (char*)malloc(cap);
+			assert(buf);
+#if MEMSET_BUFFERS
+			memset(buf, 0, cap);
+#endif
+		}
+	}
+ 
+	static int InitWinSock();
+ 
+	inline static int CloseWinSock()
+	{
+		return WSACleanup();
+	}
+ 
+	// using the same getter names from the STL like vector
+	inline char* data() { return buf; }
+	inline size_t	size() { return pos; }
+ 
+	inline int addr() { return server.sin_addr.S_un.S_addr; }
+};
+ 
+#endif
+ 
+ 
+### HW1P3_Submission/IOCPSocket2.cpp
+ 
+#include "pch.h"
+#include "IOCPSocket2.h"
+ 
+HANDLE IOCPSocket2::cp;
+ 
+int IOCPSocket2::DNS(char* host, uint16_t port)
+{
+	// Some of this is referenced from 463-sample winsock.cpp
+	struct hostent* remote;
+	uint32_t ip;
+ 
+	//std::cout << "        Doing DNS... ";
+	clock_t dns_start_t = clock();
+ 
+	if ((ip = inet_addr(host)) != INADDR_NONE)
+	{
+		server.sin_addr.S_un.S_addr = ip;
+		// still need to print this message even if its already ipv4
+		//printf(" done in %d ms, found %s\n", clock() - dns_start_t, inet_ntoa(server.sin_addr));
+	}
+	else
+	{
+		if ((remote = gethostbyname(host)) == nullptr)
+		{
+			//FATAL("failed with %d", WSAGetLastError());
+			return 1;
+		}
+		else
+		{
+			// I HATE that msft (or posix standard) made h_addr 
+			// a DEFINE for h_add_list[0]
+			// ....that is so confusing and makes things harder to debug
+			// I couldnt figure out why it wasnt connecting... 
+			// ... I was using h_addr_list b/c I hit tab on the autocomplete
+			// They shouldve made a function like macro like
+			// #define H_ADDR(SPTR) SPTR->h_addr_list[0]
+			memcpy(&server.sin_addr, remote->h_addr, remote->h_length);
+ 
+			//printf(" done in %d ms, found %s\n", clock() - dns_start_t, inet_ntoa(server.sin_addr));
+		}
+	}
+	server.sin_family = AF_INET;
+	server.sin_port = htons(port);
+	return 0;
+}
+ 
+int IOCPSocket2::Connect()
+{
+	int ret = 0;
+ 
+	if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET)
+	{
+		//FATAL("Failed to create socket with %d", WSAGetLastError());
+		return 1;
+	}
+ 
+	// server is now global
+ 
+	clock_t conn_start_t = clock();
+	if (connect(sock, (struct sockaddr*)&server, sizeof(struct sockaddr_in)) == SOCKET_ERROR)
+	{
+		////FATAL("Failed to connect to %s:%d (%s:%d), connection error %d", host, port, 
+				//inet_ntoa(server.sin_addr), port, WSAGetLastError());
+		//FATAL("failed with %d", WSAGetLastError());
+		return 1;
+	}
+	//printf("done in %d ms\n", clock() - conn_start_t);
+	//printf("Successfully connect to %s:%d (%s:%d)\n", host, port, inet_ntoa(server.sin_addr), port);
+ 
+	if (CreateIoCompletionPort((HANDLE)sock, cp, (ULONG_PTR)this, 0) == nullptr)	// n async threads = ?
+	{
+		//FATAL("Failed to attach IO completion port, with error %d", WSAGetLastError());
+		return 1;
+	}
+	return 0;
+}
+ 
+int IOCPSocket2::Send(char* req)
+{
+	if (send(sock, req, strlen(req), 0) == SOCKET_ERROR)
+	{
+		//FATAL("Failed to send request with error %d", WSAGetLastError());
+		return 1;
+	}
+	return 0;
+}
+ 
+// https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getqueuedcompletionstatus
+ 
+int IOCPSocket2::StartRecv()
+{
+	ULONG recvd = 0, flags = 0;
+	ULONG_PTR comp_key = 0;
+	int err;
+ 
+	memset(&ov, 0, sizeof(ov));
+ 
+	cpbuf.buf = buf + pos;	// the position to read from
+	cpbuf.len = cap - pos;	// how many bytes we have left in the buffer
+	if (cpbuf.len == 0)
+	{
+		FATAL("failed with exceeding max");
+		return 1;
+	}
+ 
+	//std::cout << "Recv:\n" << "\tpos = " << pos << "\n" << "\tcap = " << cap << "\n"
+		//<< "\tlen = " << cpbuf.len << "\n";
+ 
+	if ((err = WSARecv(sock, &cpbuf, 1, &recvd, &flags, &ov, NULL)) != 0)
+	{
+		if ((err = WSAGetLastError()) != WSA_IO_PENDING)
+		{
+			FATAL("failed with %d on recv", err);
+			return 1;
+		}
+	}
+	//std::cout << "\trecvd = " << recvd << "\n";
+	return 0;
+}
+ 
+int IOCPSocket2::ProcessRecv()
+{
+	ULONG recvd = 0;
+	ULONG_PTR comp_key = 0;
+	OVERLAPPED* _ov;	// ov __out
+ 
+	if (!GetQueuedCompletionStatus(cp, &recvd, &comp_key, &_ov, timeout))
+	{
+		//https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getqueuedcompletionstatus?devlangs=cpp&f1url=%3FappId%3DDev17IDEF1%26l%3DEN-US%26k%3Dk(IOAPISET%2FGetQueuedCompletionStatus)%3Bk(GetQueuedCompletionStatus)%3Bk(DevLang-C%2B%2B)%3Bk(TargetOS-Windows)%26rd%3Dtrue
+		////FATAL("Checking the rx completion queue status failed with error %d", GetLastError());
+		//if ((err = GetLastError()) == 258)
+			//FATAL("failed with timeout");
+		//else
+			////FATAL("failed with %d on GetQueuedCompletionStatus", GetLastError());
+			//FATAL("failed with %d on recv", GetLastError());
+		return 1;
+	}
+	//std::cout << "\tcqkey = " << comp_key << "\n" << "\ttrans = " << recvd << "\n";
+	if ((IOCPSocket2*)comp_key != this)
+	{
+		return 0;
+	}
+	if (recvd == 0)
+	{
+		return -1;
+	}
+ 
+ 
+	pos += recvd;
+	//pos += recvd;
+ 
+	if (cap - THRESHOLD < pos)
+	{
+//		//printf("Resize: pos %d, cap %d (max %d) -> %d\n", pos, cap, max_cap, cap*2);
+		if (cap >= max_cap)
+		{
+			//FATAL("failed with exceeding max");
+			return 1;
+		}
+//		cap *= 2;
+//		buf = (char*)realloc(buf, cap);	//TODO: check warning?
+//		assert(buf);
+//#if MEMSET_BUFFERS
+//		memset(buf + pos, 0, cap - pos); // not needed?
+//#endif
+		size_t ncap = min(cap * 2, max_cap);
+		char* nbuf = (char*)malloc(ncap);
+		assert(nbuf);
+ 
+		memcpy(nbuf, buf, pos);
+		free(buf);
+ 
+		buf = nbuf;
+		cap = ncap;
+	}
+ 
+	//printf("done in %d ms with %lld bytes\n", clock() - recv_start_t, pos);
+	return 0;	// no err, use .data() and .size() to access the buffer
+}
+ 
+ 
+int IOCPSocket2::Recv()
+{
+	while (true)
+	{
+ 
+		if (StartRecv()) return 1;
+ 
+		int res = ProcessRecv();
+		if (res < 0) break;			// done
+		if (res > 0) return 1;		// err
+	}
+	return 0;
+}
+ 
+int IOCPSocket2::InitWinSock()
+{
+	int ret;
+	WSADATA data;
+	if ((ret = WSAStartup(MAKEWORD(2, 2), &data)) != 0)
+	{
+		FATAL("WSAStartup failed: %d", ret);
+		return ret;
+	}
+ 
+	if (!(cp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, nullptr, 0, 0)))
+	{
+		FATAL("Failed to create the global IOCP: %d", GetLastError());
+	}
+	return 0;
+}
+ 
+### HW1P3_Submission/HttpFormat.cpp
+ 
+#include "pch.h"
+#include "HttpFormat.h"
+ 
+char* EncodeHttpRequest(ParsedURL& url)
+{
+	char* buf = (char*)malloc(MAX_REQUEST_LEN + 1);
+	assert(buf);
+	sprintf_s(buf, MAX_REQUEST_LEN,
+		"GET %s%s HTTP/1.0\r\n"
+		"User-agent: justustamucrawler/1.0\r\n"
+		"Host: %s\r\n"
+		"Connection: close\r\n"
+		"\r\n",
+		url.path, url.query, url.host);
+	return buf;
+}
+ 
+char* EncodeHttpRobotsRequest(ParsedURL& url)
+{
+	char* buf = (char*)malloc(MAX_REQUEST_LEN + 1);
+	assert(buf);
+	sprintf_s(buf, MAX_REQUEST_LEN,
+		"HEAD /robots.txt HTTP/1.0\r\n"
+		"User-agent: justustamucrawler/1.0\r\n"
+		"Host: %s\r\n"
+		"Connection: close\r\n"
+		"\r\n", url.host);
+	return buf;
+}
+ 
+HttpResponse DecodeHttpResponse(char* buf, size_t len)
+{
+	HttpResponse resp(-1);
+	//std::cout << "        Verifying header... ";
+	if (strncmp(buf, "HTTP/", 5) != 0)
+	{
+		//FATAL("failed with non-HTTP header (does not begin with HTTP/)");
+		return resp;
+	}
+	char* end;			// + 8 to bypass HTTP/X.X 
+	resp.status = (int)strtol(buf + 8, &end, 10);
+	if (!end)
+	{
+		//FATAL("Failed to parse the response code");
+		return HttpResponse(-1);
+	}
+	// This is not required I belive so I am going to define it out
+#if CHECK_CONTENT_LENGTH
+	// TODO: switch to case insensitive?
+	//https://learn.microsoft.com/en-us/windows/win32/api/shlwapi/nf-shlwapi-strstria
+	char* clstr = strstr(buf, CONTENT_LENGTH);
+	if (!clstr)
+	{
+		FATAL("Could not find content length 1");
+		return HttpResponse(-1);
+	}
+	// -1 for nullterm +1 for space = 0
+	size_t cl = strtol(clstr + sizeof(CONTENT_LENGTH), &end, 10);
+	if (!end)
+	{
+		// I guess this is not strictly mandatory so maybe should avoid?
+		// or make it optional for a check or something
+		FATAL("Could not parse content length 2");
+		return HttpResponse(-1);
+	}
+#endif
+	resp.body = strstr(buf, BODY_MARKER);
+	if (!resp.body)
+	{
+		//FATAL("Cound not find the HTML body");
+		return HttpResponse(-1);
+	}
+	resp.header = extractstrn(buf, resp.body - buf);
+	resp.body += sizeof(BODY_MARKER) - 1;	// -1 for null term
+	//printf("status code %d\n", resp.status);
+	resp.len = (buf + len) - resp.body;
+	return resp;
+}
+ 
+ 
+ 
+### HW1P3_Submission/Crawler.cpp
+ 
+#include "pch.h"
+#include "Crawler.h"
+ 
+#define STATS_PERIOD 2000
+ 
+DWORD WINAPI Crawler::StatsThread(LPVOID _crawler)
+{
+	Crawler* crawler = (Crawler*)_crawler;
+ 
+	while (WaitForSingleObject(crawler->event_quit, STATS_PERIOD) == WAIT_TIMEOUT)
+	{
+		size_t qsize;
+		EnterCriticalSection(&crawler->urls_mutex);
+		qsize = crawler->urls.size();
+		LeaveCriticalSection(&crawler->urls_mutex);
+ 
+		long elapsed = (clock() - crawler->start_t) / 1000;
+ 
+		long _pages_elapsed = InterlockedExchange(&crawler->stats.pages_elapsed, 0);
+		long _bytes_elapsed = InterlockedExchange(&crawler->stats.bytes_elapsed, 0);
+ 
+		printf("[%3d] %8d Q %6d E %7d H %6d D %6d I %5d R %5d C %5d L %4dK\n",
+			elapsed,
+			crawler->active_threads,
+			qsize,
+			crawler->stats.extracted,
+			crawler->stats.unique_hosts,
+			crawler->stats.dns_success,
+			crawler->stats.unique_ips,
+			crawler->stats.robots_passed,
+			crawler->stats.crawled,
+			crawler->stats.nlinks / 1000);
+ 
+		printf(" *** crawling %.1f pps @ %.1f Mbps\n",
+				_pages_elapsed / (STATS_PERIOD/1000.0), (_bytes_elapsed * 8.0) / (STATS_PERIOD * 1000.0));
+	}
+ 
+	return 0;
+}
+ 
+ 
+void Crawler::Crawl(int nthreads)
+{
+	start_t = clock();
+ 
+	HANDLE stats_thread;
+	if ((stats_thread = CreateThread(NULL, 0, StatsThread, this, 0, NULL)) == NULL)
+	{
+		FATAL("Could not create stats thread (error %d)\n", GetLastError());
+		return;
+	}
+ 
+	std::vector<HANDLE> workers(nthreads);
+	for (int i = 0; i < nthreads; i++)
+	{
+		if ((workers[i] = CreateThread(NULL, 0, Worker::Start, this, 0, NULL)) == NULL)
+		{
+			FATAL("Could not create worker thread #%d (error %d)\n", i, GetLastError());
+			return;
+		}
+	}
+ 
+	for (int i = 0; i < workers.size(); i += MAXIMUM_WAIT_OBJECTS)
+	{
+		int n = min(MAXIMUM_WAIT_OBJECTS, workers.size());
+		WaitForMultipleObjects(n, workers.data(), TRUE, INFINITE);
+	}
+	//std::cout << "DONE!\n";
+ 
+	SetEvent(event_quit);
+	WaitForSingleObject(stats_thread, INFINITE);
+ 
+	for (int i = 0; i < nthreads; i++)	CloseHandle(workers[i]);
+	CloseHandle(stats_thread);
+ 
+	double elapsed = (clock() - start_t) / 1000.0;
+	printf("\n");
+	printf("Extracted %d URLs @ %.0f/s\n", stats.extracted, stats.extracted / elapsed);
+	printf("Looked up %d DNS names @ %.0f/s\n", stats.dns_success, stats.dns_success / elapsed);
+	printf("Attempted %d robots @ %.0f/s\n", stats.unique_ips, stats.unique_ips / elapsed);
+	printf("Crawled %d pages @ %.0f/s\n", stats.crawled, stats.crawled / elapsed);
+	printf("Parsed %d links @ %.0f/s\n", stats.nlinks, stats.nlinks / elapsed);
+ 
+	printf("HTTP codes: 2xx = %d, 3xx = %d, 4xx = %d, 5xx = %d, other = %d\n",
+		stats.s2, stats.s3, stats.s4, stats.s5, stats.s_other);
+	
+	//printf("Extra stats:\n");
+	//printf("Downloaded %d bytes of data\n", stats.total_bytes);
+	//printf("There are %d links that point to tamu.edu\n", stats.ntamu);
+}
+ 
+ 
+ 
+bool Crawler::DuplicateHost(ParsedURL url)
+{
+#if BYPASS_HOST_UNIQUENESS
+	return false;
+#else
+	bool ret = false;
+	EnterCriticalSection(&seen_hosts_mutex);
+	std::string host(url.host);
+	if (seen_hosts.contains(host))	
+		ret = true;
+	else 
+		seen_hosts.insert(host);
+	LeaveCriticalSection(&seen_hosts_mutex);
+	return ret;
+#endif
+}
+ 
+bool Crawler::DuplicateAddr(int ip)
+{
+#if BYPASS_ADDR_UNIQUENESS 
+	return false;
+#else
+	bool ret = false;
+	EnterCriticalSection(&seen_addrs_mutex);
+	if (seen_addrs.contains(ip))
+		ret = true;
+	else 
+		seen_addrs.insert(ip);
+	LeaveCriticalSection(&seen_addrs_mutex);
+	return ret;
+#endif
+}
+ 
+ 
+ 
+ 
+### HW1P3_Submission/IOCPSocket.cpp
+ 
+#include "pch.h"
+#include "IOCPSocket.h"
+ 
+int IOCPSocket::DNS(char* host, uint16_t port)
+{
+	// Some of this is referenced from 463-sample winsock.cpp
+	struct hostent* remote;
+	uint32_t ip;
+ 
+	//std::cout << "        Doing DNS... ";
+	clock_t dns_start_t = clock();
+ 
+	if ((ip = inet_addr(host)) != INADDR_NONE)
+	{
+		server.sin_addr.S_un.S_addr = ip;
+		// still need to print this message even if its already ipv4
+		//printf(" done in %d ms, found %s\n", clock() - dns_start_t, inet_ntoa(server.sin_addr));
+	}
+	else
+	{
+		if ((remote = gethostbyname(host)) == nullptr)
+		{
+			//FATAL("failed with %d", WSAGetLastError());
+			return 1;
+		}
+		else
+		{
+			// I HATE that msft (or posix standard) made h_addr 
+			// a DEFINE for h_add_list[0]
+			// ....that is so confusing and makes things harder to debug
+			// I couldnt figure out why it wasnt connecting... 
+			// ... I was using h_addr_list b/c I hit tab on the autocomplete
+			// They shouldve made a function like macro like
+			// #define H_ADDR(SPTR) SPTR->h_addr_list[0]
+			memcpy(&server.sin_addr, remote->h_addr, remote->h_length);
+ 
+			//printf(" done in %d ms, found %s\n", clock() - dns_start_t, inet_ntoa(server.sin_addr));
+		}
+	}
+	server.sin_family = AF_INET;
+	server.sin_port = htons(port);
+	return 0;
+}
+ 
+int IOCPSocket::Connect()
+{
+	int ret = 0;
+ 
+	if ((sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) == INVALID_SOCKET)
+	{
+		//FATAL("Failed to create socket with %d", WSAGetLastError());
+		return 1;
+	}
+ 
+	// server is now global
+ 
+	clock_t conn_start_t = clock();
+	if (connect(sock, (struct sockaddr*)&server, sizeof(struct sockaddr_in)) == SOCKET_ERROR)
+	{
+		////FATAL("Failed to connect to %s:%d (%s:%d), connection error %d", host, port, 
+				//inet_ntoa(server.sin_addr), port, WSAGetLastError());
+		//FATAL("failed with %d", WSAGetLastError());
+		return 1;
+	}
+	//printf("done in %d ms\n", clock() - conn_start_t);
+	//printf("Successfully connect to %s:%d (%s:%d)\n", host, port, inet_ntoa(server.sin_addr), port);
+ 
+	// having to use this function for both creating the handle and attaching
+	// to the port was very confusing
+	if (CreateIoCompletionPort((HANDLE)sock, cp, (ULONG_PTR)sock, 1) == nullptr)	// n async threads = ?
+	{
+		//FATAL("Failed to attach IO completion port, with error %d", WSAGetLastError());
+		return 1;
+	}
+	return 0;
+}
+ 
+int IOCPSocket::Send(char* req)
+{
+	if (send(sock, req, strlen(req), 0) == SOCKET_ERROR)
+	{
+		//FATAL("Failed to send request with error %d", WSAGetLastError());
+		return 1;
+	}
+	return 0;
+}
+ 
+// https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getqueuedcompletionstatus
+ 
+int IOCPSocket::Recv()
+{
+	OVERLAPPED* overlapped = new OVERLAPPED{};	// TODO: look into this more?
+	WSABUF cpbuf;
+	ULONG recvd = 0, flags = 0, trans = 0;
+	ULONG_PTR comp_key = 0;
+	int err;
+ 
+	//std::cout << "        Loading... ";
+	clock_t recv_start_t = clock();
+ 
+	while (true)
+	{
+		if (clock() - recv_start_t > timeout)
+		{
+			//FATAL("failed with slow download");
+			return 1;
+		}
+ 
+		cpbuf.buf = buf + pos;	// the position to read from
+		cpbuf.len = min(cap, max_cap) - pos;	// how many bytes we have left in the buffer
+		if (cpbuf.len == 0)
+		{
+			//FATAL("failed with exceeding max");
+			return 1;
+		}
+ 
+		//std::cout << "Recv:\n" << "\tpos = " << pos << "\n" << "\tcap = " << cap << "\n"
+			//<< "\tlen = " << cpbuf.len << "\n";
+ 
+		if ((err = WSARecv(sock, &cpbuf, 1, &recvd, &flags, overlapped, NULL)) != 0)
+		{
+			if ((err = WSAGetLastError()) != WSA_IO_PENDING /*997 is ok*/)
+			{
+				////FATAL("Failed to recv into buffer with error %d", err);
+				//FATAL("failed with %d on recv", err);
+				return 1;
+			}
+		}
+		//std::cout << "\trecvd = " << recvd << "\n";
+ 
+		if (!(err = GetQueuedCompletionStatus(cp, &trans, &comp_key, &overlapped, timeout)))
+		{
+			//https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getqueuedcompletionstatus?devlangs=cpp&f1url=%3FappId%3DDev17IDEF1%26l%3DEN-US%26k%3Dk(IOAPISET%2FGetQueuedCompletionStatus)%3Bk(GetQueuedCompletionStatus)%3Bk(DevLang-C%2B%2B)%3Bk(TargetOS-Windows)%26rd%3Dtrue
+			////FATAL("Checking the rx completion queue status failed with error %d", GetLastError());
+			//if ((err = GetLastError()) == 258)
+				//FATAL("failed with timeout");
+			//else
+				////FATAL("failed with %d on GetQueuedCompletionStatus", GetLastError());
+				//FATAL("failed with %d on recv", GetLastError());
+			return 1;
+		}
+ 
+		//std::cout << "\tcqkey = " << comp_key << "\n" << "\ttrans = " << trans << "\n";
+		pos += trans;
+		//pos += recvd;
+ 
+		if (trans == 0 && recvd == 0) break;
+ 
+		if (cap - THRESHOLD < pos)
+		{
+			//printf("Resize: pos %d, cap %d (max %d) -> %d\n", pos, cap, max_cap, cap*2);
+			if (cap >= max_cap)
+			{
+				//FATAL("failed with exceeding max");
+				return 1;
+			}
+			cap *= 2;
+			buf = (char*)realloc(buf, cap);	//TODO: check warning?
+			assert(buf);
+#if MEMSET_BUFFERS
+			memset(buf + pos, 0, cap - pos); // not needed?
+#endif
+		}
+	}
+ 
+	//printf("done in %d ms with %lld bytes\n", clock() - recv_start_t, pos);
+	return 0;	// no err, use .data() and .size() to access the buffer
+}
+ 
+int IOCPSocket::InitWinSock()
+{
+	int ret;
+	WSADATA data;
+	if ((ret = WSAStartup(MAKEWORD(2, 2), &data)) != 0)
+	{
+		//FATAL("WSAStartup failed: %d", ret);
+		return ret;
+	}
+	return 0;
+}
+ 
+### HW2_Submission/utils.h
+ 
+/*
+ * HW2 - DNS Client
+ *
+ * Justus Languell
+ */
+#pragma once
+ 
+#include <iostream>
+#include <cassert>
+#include <vector>
+#include "Windows.h"
+ 
+#define FATAL(FMT, ...)	fprintf(stderr, FMT "\n", __VA_ARGS__)
+ 
+void PrintBytes(byte* buf, int len)
+{
+	for (int i = 0; i < len; i++)
+		printf("%4d", i);
+	printf("\n");
+	for (int i = 0; i < len; i++)
+		printf("%4c", buf[i]);
+	printf("\n");
+	for (int i = 0; i < len; i++)
+		printf("%4d", buf[i]);
+	printf("\n");
+	for (int i = 0; i < len; i++)
+		printf("%4x", buf[i]);
+	printf("\n");
+}
+ 
+ 
+ 
+### HW2_Submission/HW2.cpp
+ 
+/*
+ * HW2 - DNS Client
+ * 
+ * Justus Languell
+ */
+#include "pch.h"
+ 
+#include "utils.h"
+#include "dns.h"
+ 
+//#define IGNORE_INPUTS
+ 
+/*
+ * 
+ *		Flow-chart of the program, based off the one provided in the PDF
+ * 
+ *        *-------*											  *--------*
+ *        | Input |											  | Output |
+ *        *-------*											  *--------*
+ *            |													  ^
+ *            v												      |
+ *  *-------------------*   IP							 *------------------* 
+ *  | Decide query type |-----------*  Query type PTR	 |  Parse Response  |
+ *  *-------------------*      		|					 *------------------* 	
+ *            |						|							  ^
+ *            | Host				|							  |
+ *			  |						v							  |
+ *            |          *-------------------*			 *------------------* 
+ *            *--------->|   Create Query    |---------->| Transmit/Receive | 
+ *      Query type A     *-------------------*			 *------------------*
+ * 
+ */
+int main(int argc, char** argv) 
+{
+	WSADATA data;
+	if (WSAStartup(MAKEWORD(2, 2), &data))
+	{
+		FATAL("WSAStartup failed with %d\n", WSAGetLastError());
+		return 1;
+	}
+ 
+#if defined(_DEBUG) && defined(IGNORE_INPUTS)
+	//char* lookup_str = (char*)"www.dhs.gov";
+	char* lookup_str = (char*)"1.1.1.1";
+	//char dns_addr_str[] = "128.194.135.79";
+	char dns_addr_str[] = "8.8.8.8";
+#else
+	if (argc != 3)
+	{
+		FATAL("Usage: %s <hostname or IP addr to lookup> <IP addr of DNS server>", argv[0]);
+		return 1;
+	}
+	char* lookup_str = argv[1], *dns_addr_str = argv[2];
+#endif
+	// TODO: swap byte order and add .in-addr.arpa for reverse lookup
+	//int query_type = isdigit(lookup_str[0]) ? DNS_PTR : DNS_A;
+	char rev_lookup_str[MAX_DNS_LEN];
+	int query_type = DNS_A;
+	struct in_addr addr;
+	if (inet_pton(AF_INET, lookup_str, &addr) == 1)
+	{
+		query_type = DNS_PTR;
+		byte* b = (byte*)&addr.s_addr;
+		sprintf_s(rev_lookup_str, sizeof(rev_lookup_str), "%u.%u.%u.%u.in-addr.arpa", b[3], b[2], b[1], b[0]);
+		lookup_str = rev_lookup_str;
+	}
+	
+	DNSBuffer query = { 0 }, resp = { 0 };
+ 
+	if (CreateQuery(&query, lookup_str, query_type))
+		return 1;
+ 
+	printf("Lookup   : %s\n"
+		"Query    : %s, type %d, TXID 0x%04X\n"
+		"Server   : %s\n"
+		"********************************\n",
+		lookup_str, lookup_str, query_type, query.txid, dns_addr_str);
+	
+	if (PerformQuery(dns_addr_str, &query, &resp))
+		return 1;
+ 
+	if (ParseResponse(&query, &resp))
+		return 1;
+ 
+	WSACleanup();
+	return 0;
+}
+ 
+ 
+ 
+ 
+### HW2_Submission/pch.h
+ 
+// pch.h: This is a precompiled header file.
+// Files listed below are compiled only once, improving build performance for future builds.
+// This also affects IntelliSense performance, including code completion and many code browsing features.
+// However, files listed here are ALL re-compiled if any one of them is updated between builds.
+// Do not add files here that you will be updating frequently as this negates the performance advantage.
+ 
+#ifndef PCH_H
+#define PCH_H
+ 
+// add headers that you want to pre-compile here
+#include <iostream>
+#include <string>
+#include <vector>
+#include <queue>
+#include <set>
+ 
+#include <cstdlib>
+ 
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+ 
+#endif //PCH_H
+ 
+ 
+### HW2_Submission/pch.cpp
+ 
+// pch.cpp: source file corresponding to the pre-compiled header
+ 
+#include "pch.h"
+ 
+// When you are using pre-compiled headers, this source file is necessary for compilation to succeed.
+ 
+ 
+### HW2_Submission/dns.h
+ 
+/*
+ * HW2 - DNS Client
+ *
+ * Justus Languell
+ */
+#pragma once
+ 
+#include "utils.h"
+ 
+// Copied from the HW PDF:
+ 
+/* Query types */
+#define DNS_A			1			/* name -> IP */
+#define DNS_NS			2			/* name server */
+#define DNS_CNAME		5			/* canonical name */
+#define DNS_PTR			12			/* IP -> name */
+#define DNS_HINFO		13			/* host info/SOA */
+#define DNS_MX			15			/* mail exchange */
+#define DNS_AXFR		252			/* request for zone transfer */
+#define DNS_ANY			255			/* all records */ 
+ 
+/* Query classes */
+#define DNS_INET		1 
+ 
+/* Flags */
+#define DNS_QUERY		(0 << 15)	/* 0 = query; 1 = response */
+#define DNS_RESPONSE	(1 << 15)
+#define DNS_STDQUERY	(0 << 11)	/* opcode - 4 bits */
+#define DNS_AA			(1 << 10)	/* authoritative answer */
+#define DNS_TC			(1 << 9)	/* truncated */
+#define DNS_RD			(1 << 8)	/* recursion desired */
+#define DNS_RA			(1 << 7)	/* recursion available */ 
+ 
+#define DNS_OK			0			/* success */
+#define DNS_FORMAT		1			/* format error (unable to interpret) */
+#define DNS_SERVERFAIL	2			/* cant find authority nameserver */
+#define DNS_ERROR		3			/* no DNS entry */
+#define DNS_NOTIMPL		4			/* not implemented */
+#define DNS_REFUSED		5			/* server refused the query */ 
+ 
+#define MAX_DNS_LEN		512
+#define MAX_DNS_WORD	64
+ 
+#define MAX_ATTEMPTS	3
+ 
+// A lot of the below code is based off the slides:
+ 
+#pragma pack(push, 1)
+ 
+ 
+struct DNSQueryHeader
+{
+	uint16_t qtype;
+	uint16_t qclass;
+};
+ 
+struct DNSFixedHeader
+{
+	uint16_t txid;
+	uint16_t flags;
+	uint16_t n_questions;
+	uint16_t n_answers;
+	uint16_t n_authority;
+	uint16_t n_additional;
+};
+ 
+struct DNSAnswerHeader
+{
+	uint16_t rtype;
+	uint16_t rclass;
+	uint32_t ttl;
+	uint16_t len;
+};
+ 
+ 
+#pragma pack(pop)
+ 
+void htons_n(void* vobj, int size)
+{
+	short* obj = (short*)vobj;
+	for (int i = 0; i < size / sizeof(short); i++)
+	{
+		obj[i] = htons(obj[i]);
+	}
+}
+ 
+struct DNSBuffer 
+{
+	uint16_t size;
+	uint16_t txid;	
+	byte packet[MAX_DNS_LEN];
+};
+ 
+/*
+* Transform a hostname or IP address into a DNS question.
+*/
+int CreateQuestion(byte* ques, char* lookup)
+{
+	int i = 0; 
+	char* end, *head = lookup;
+	while ((end = strchr(head, '.')) || (end = strchr(head, 0)))
+	{
+		if ((ques[i] = end - head) > MAX_DNS_WORD) return 1;
+		memcpy(ques + i + 1, head, end - head);
+		i += end - head + 1;
+		head = end + 1;
+		if (!*end) break;
+	}
+	ques[i] = 0;
+	return 0;
+}
+ 
+/*
+* Print a DNS question with word lengths for debugging.
+*/
+void PrintQuestion(byte* ques)
+{
+	for (int l; l = *(ques++); putchar(' '))
+	{
+		printf("(%d)", l);
+		while (l--)
+			putchar(*(ques++));
+	}
+	printf("0\n");
+}
+ 
+/*
+* Construct a DNS query for a given hostname or IP to lookup
+* with a given query type. 
+*/
+int CreateQuery(DNSBuffer* query, char* lookup, int qtype)
+{
+	if ((query->size = strlen(lookup) + 2 + sizeof(DNSFixedHeader) + sizeof(DNSQueryHeader)) > MAX_DNS_LEN)
+	{
+		FATAL("The query packet exceeded the max length of %d\n", MAX_DNS_LEN);
+		return 1;
+	}
+	query->txid = __rdtsc() & 0xFFFF;	// should be random enough
+ 
+	DNSFixedHeader* fh = (DNSFixedHeader*)query->packet;
+	fh->txid         = htons(query->txid);
+	fh->flags        = htons(DNS_QUERY | DNS_RD | DNS_STDQUERY);
+	fh->n_questions  = htons(1);
+	fh->n_answers	 = 0;
+	fh->n_authority  = 0;
+	fh->n_additional = 0;
+ 
+	DNSQueryHeader* qh = (DNSQueryHeader*)(query->packet + query->size - sizeof(DNSQueryHeader));
+	qh->qtype  = htons(qtype);
+	qh->qclass = htons(DNS_INET);
+ 
+	if (CreateQuestion(query->packet + sizeof(DNSFixedHeader), lookup))
+	{
+		FATAL("Some word in lookup string exceeded the max length of %d\n", MAX_DNS_WORD);
+		return 1;
+	}
+	//PrintBytes(packet + sizeof(DNSFixedHeader), strlen(lookup) + 2);
+	//PrintQuestion(query->packet + sizeof(DNSFixedHeader));
+	
+	//PrintBytes(query->packet, query->size);
+	return 0;
+}
+ 
+/*
+* 
+*/
+int PerformQuery(char* dns_addr_str, DNSBuffer* query, DNSBuffer* resp)
+{
+	SOCKET sock;
+ 
+ 
+	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET)
+	{
+		FATAL("Failed to create socket with %d", WSAGetLastError());
+		return 1;
+	}
+ 
+	struct sockaddr_in local = { 0 }, remote = { 0 }, reply = { 0 };
+	remote.sin_family = local.sin_family = AF_INET;
+ 
+	local.sin_addr.s_addr = INADDR_ANY;
+	local.sin_port = htons(0);
+	remote.sin_addr.s_addr = inet_addr(dns_addr_str);
+	remote.sin_port = htons(53);
+ 
+ 
+	/*
+	*/
+	if (bind(sock, (struct sockaddr*)&local, sizeof(local)) == SOCKET_ERROR)
+	{
+		FATAL("Failed to bind local socket with %d\n", WSAGetLastError());
+	}
+	
+	int avail = 0;
+	for (int i = 0; i < MAX_ATTEMPTS; i++)
+	{
+		clock_t start_t = clock();
+		printf("Attempt %d with %d bytes... ", i, query->size);
+		// tx
+		if (sendto(sock, (char*)query->packet, query->size, 0, (struct sockaddr*)&remote, sizeof(remote)) == SOCKET_ERROR)
+		{
+			FATAL("Failed to transmit with %d", WSAGetLastError());
+			goto err;
+		}
+	
+		// rx 
+		fd_set fd;
+		FD_ZERO(&fd);
+		FD_SET(sock, &fd);
+		timeval tv;
+		tv.tv_sec = 10;
+		tv.tv_usec = 0;
+		if ((avail = select(0, &fd, NULL, NULL, &tv)) > 0)
+		{
+			int reply_addr_len = sizeof(reply);
+			if ((resp->size = recvfrom(sock, (char*)resp->packet, MAX_DNS_LEN, 0, (struct sockaddr*)&reply, &reply_addr_len)) == SOCKET_ERROR)
+			{
+				FATAL("Failed to receive response with %d", WSAGetLastError());
+				goto err;
+			}
+			if (reply.sin_addr.s_addr != remote.sin_addr.s_addr || reply.sin_port != remote.sin_port)
+			{
+				// is this an error or a retransmit?
+				FATAL("Received a response for a different socket and port, I am complaining!");
+				goto err;
+			}
+			printf("response in %d ms with %d bytes\n", clock() - start_t, resp->size);
+			break;
+		} 
+		else if (avail == 0)
+		{
+			printf("timeout in %d ms\n", clock() - start_t);
+			continue;
+		}
+		else
+		{
+			FATAL("failed on select with %d", WSAGetLastError());
+			goto err;
+		}
+	}
+	if (avail == 0) goto err;
+ 
+	//PrintBytes(resp->packet, resp->size);
+ 
+	closesocket(sock);
+	return 0;
+err:
+	closesocket(sock);
+	return 1;
+ 
+}
+ 
+/*
+* 
+*/
+//int ParseQuestions(byte* buf, int n)
+//{
+//	static char host[MAX_DNS_LEN] = { 0 };
+//	byte* bptr = buf;
+//	printf("------------ [questions] ----------\n");
+//	while (n--)
+//	{
+//		char* hptr = host;
+//		for (int l; l = *(bptr++); *(hptr++) = '.')
+//		{
+//			while (l--)
+//				*(hptr++) = *(bptr++);
+//		}
+//		hptr[-1] = 0;
+//
+//		DNSQueryHeader* qh = (DNSQueryHeader*)bptr;
+//		bptr += sizeof(DNSQueryHeader);
+//		printf("  %s type %d class %d\n", host, htons(qh->qtype), htons(qh->qclass));
+//	}
+//	return bptr - buf;
+//}
+ 
+ 
+int ParseName(byte* buf, int buflen, int pos, char* name)
+{
+	int rpos = pos, wpos = 0, len, dif = 0, jmps = 0;
+ 
+	while (true)
+	{
+		if (pos >= buflen)
+		{
+			FATAL("  ++ invalid record: truncated name");
+			return -1;
+		}
+		if ((len = buf[rpos]) == 0)
+		{
+			if (!jmps) dif = rpos - pos;
+			break;
+		}
+		if ((len & 0xC0) == 0xC0)
+		{
+			if (rpos + 1 >= buflen)
+			{
+				FATAL("  ++ invalid record: truncated jump offset");
+				return -1;
+			}
+			int off = ((buf[rpos] & 0x3F) << 8) + buf[rpos + 1];
+			if (off >= buflen)
+			{
+				FATAL("  ++ invalid record: jump beyond packet boundary");
+				return -1;
+			}
+			if (off < sizeof(DNSFixedHeader))
+			{
+				FATAL("  ++ invalid record: jump into fixed DNS header");
+				return -1;
+			}
+			if (!jmps) dif = rpos - pos + 2;
+			if (++jmps > 32)
+			{
+				FATAL("  ++ invalid record: jump loop");
+				return -1;
+			}
+			rpos = off;
+			continue;
+		}
+		if (rpos + 1 + len > buflen)
+		{
+			FATAL("  ++ invalid record: truncated name");
+			return -1;
+		}
+		if (wpos > 0) name[wpos++] = '.';
+		memcpy(name + wpos, buf + rpos + 1, len);
+		wpos += len;
+		rpos += 1 + len;
+	}
+	name[wpos] = 0;
+	if (!jmps) dif = rpos - pos + 1;
+	return dif;
+}
+ 
+ 
+int ParseQuestions(byte* buf, int buflen, int pos, int n)
+{
+	char name[MAX_DNS_LEN];
+	int r;
+	for (int i = 0; i < n; i++)
+	{
+		if (pos >= buflen)
+		{
+			FATAL("  ++ invalid section: not enough records");
+			return -1;
+		}
+		if ((r = ParseName(buf, buflen, pos, name)) < 0)
+			return -1;
+		pos += r;
+		if (pos + sizeof(DNSQueryHeader) > buflen)
+			return -1;
+		DNSQueryHeader* qh = (DNSQueryHeader*)(buf + pos);
+		pos += sizeof(DNSQueryHeader);
+		printf("  %s type %d class %d\n", name, ntohs(qh->qtype), ntohs(qh->qclass));
+	}
+	return pos;
+}
+ 
+char* RecordTypeStr(short type)
+{
+	switch (type)
+	{
+	case DNS_A: return (char*)"A";
+	case DNS_NS: return (char*)"NS";
+	case DNS_CNAME: return (char*)"CNAME";
+	case DNS_PTR: return (char*)"PTR";
+	case DNS_MX: return (char*)"MX";
+	default: return (char*)"?";
+	}
+}
+ 
+ 
+int ParseRecords(byte* buf, int buflen, int pos, int n)
+{
+	char name[MAX_DNS_LEN], rr[MAX_DNS_LEN];
+	int r;
+	for (int i = 0; i < n; i++)
+	{
+		if (pos >= buflen)
+		{
+			FATAL("  ++ invalid section: not enough records");
+			return -1;
+		}
+		if ((r = ParseName(buf, buflen, pos, name)) < 0)
+			return -1;
+		pos += r;
+		if (pos + (int)sizeof(DNSAnswerHeader) > buflen)
+		{
+			FATAL("  ++ invalid record: truncated RR answer header");
+			return -1;
+		}
+ 
+		DNSAnswerHeader* ah = (DNSAnswerHeader*)(buf + pos);
+		ah->rtype = ntohs(ah->rtype);
+		ah->ttl = ntohl(ah->ttl);
+		ah->len = ntohs(ah->len);
+		pos += sizeof(DNSAnswerHeader);
+ 
+		if (pos + ah->len > buflen)
+		{
+			FATAL("  ++ invalid record: RR value length stretches the answer beyond packet");
+			return -1;
+		}
+ 
+		if (ah->rtype == DNS_A && ah->len == 4)
+		{
+			struct in_addr addr;
+			memcpy(&addr, buf + pos, 4);
+			printf("  %s A %s TTL = %u\n", name, inet_ntoa(addr), ah->ttl);
+		}
+		else
+		{
+			ParseName(buf, buflen, pos, rr);
+			printf("  %s %s %s TTL = %u\n", name, RecordTypeStr(ah->rtype), rr, ah->ttl);
+		}
+ 
+		pos += ah->len;
+	}
+	return pos;
+}
+ 
+/*
+*/
+int ParseResponse(DNSBuffer* query, DNSBuffer* resp)
+{
+	if (resp->size <= sizeof(DNSFixedHeader))
+	{
+		FATAL("  ++ packet smaller than fixed DNS header\n");
+		return 1;
+	}
+ 
+	DNSFixedHeader* fh = (DNSFixedHeader*)resp->packet;
+	fh->txid = ntohs(fh->txid);
+	fh->flags = ntohs(fh->flags);
+	fh->n_questions = ntohs(fh->n_questions);
+	fh->n_answers = ntohs(fh->n_answers);
+	fh->n_authority = ntohs(fh->n_authority);
+	fh->n_additional = ntohs(fh->n_additional);
+ 
+	printf("  TXID 0x%04X flags 0x%04X questions %d answers %d authority %d additional %d\n",
+		fh->txid, fh->flags, fh->n_questions, fh->n_answers, fh->n_authority, fh->n_additional);
+	if (query->txid != fh->txid)
+	{
+		FATAL("  ++ invalid reply TXID mismatch, sent 0x%04X, received 0x%04X\n", query->txid, fh->txid);
+		return 1;
+	}
+	int rcode, pos = sizeof(DNSFixedHeader);
+	if ((rcode = fh->flags & 0x000F) != DNS_OK)
+	{
+		printf("  failed with Rcode = %d\n", rcode);
+	}
+	else
+	{
+		printf("  succeeded with Rcode = %d\n", rcode);
+	}
+ 
+	//byte* buf = (byte*)(resp->packet + sizeof(DNSFixedHeader));	// TODO: switch to index based
+ 
+	printf("  ------------ [questions] ----------\n");
+	if ((pos = ParseQuestions(resp->packet, resp->size, pos, fh->n_questions)) < 0)
+		return 1;
+ 
+	printf("  ------------ [answers] ------------\n");
+	if ((pos = ParseRecords(resp->packet, resp->size, pos, fh->n_answers)) < 0)
+		return 1;
+ 
+	printf("  ------------ [authority] ----------\n");
+	if ((pos = ParseRecords(resp->packet, resp->size, pos, fh->n_authority)) < 0)
+		return 1;
+ 
+	printf("  ------------ [additional] ---------\n");
+	if ((pos = ParseRecords(resp->packet, resp->size, pos, fh->n_additional)) < 0)
+		return 1;
+ 
+	//PrintBytes(buf, 128);
+ 
+	return 0;
+}
+ 
+ 
+### HW3P3_Submission/pch.h
+ 
+// pch.h: This is a precompiled header file.
+// Files listed below are compiled only once, improving build performance for future builds.
+// This also affects IntelliSense performance, including code completion and many code browsing features.
+// However, files listed here are ALL re-compiled if any one of them is updated between builds.
+// Do not add files here that you will be updating frequently as this negates the performance advantage.
+ 
+#ifndef PCH_H
+#define PCH_H
+ 
+// add headers that you want to pre-compile here
+#include <iostream>
+#include <string>
+#include <vector>
+#include <queue>
+#include <set>
+ 
+#include <cstdlib>
+ 
+#define _WINSOCK_DEPRECATED_NO_WARNINGS
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+ 
+ 
+#endif //PCH_H
+ 
+ 
+### HW3P3_Submission/Checksum.cpp
+ 
+#include "pch.h"
+ 
+#include "Checksum.h"
+ 
+// Copied from the homework PDF
+ 
+Checksum::Checksum()
+{
+	// set up a lookup table for later use
+	for (DWORD i = 0; i < 256; i++)
+	{
+		DWORD c = i;
+		for (int j = 0; j < 8; j++)
+		{
+			c = (c & 1) ? (0xEDB88320 ^ (c >> 1)) : (c >> 1);
+		}
+		crc_table[i] = c;
+	}
+}
+DWORD Checksum::CRC32(byte* buf, size_t len)
+{
+	DWORD c = 0xFFFFFFFF;
+	for (size_t i = 0; i < len; i++)
+		c = crc_table[(c ^ buf[i]) & 0xFF] ^ (c >> 8);
+	return c ^ 0xFFFFFFFF;
+}
+ 
+### HW3P3_Submission/HW3P3.cpp
+ 
+// HW3P3.cpp : This file contains the 'main' function. Program execution begins and ends there.
+//
+ 
+#include "pch.h"
+ 
+#include "Util.h"
+#include "SenderSocket.h"
+#include "Checksum.h"
+ 
+int main(int argc, char** argv)
+{
+	// The homework must accept as input seven command-line parameters of the transfer 
+	// * destination server(hostname or IP),
+	// * a power-of-2 buffer size to be transmitted (in DWORDs),
+	// * sender window(in packets), the round-trip propagation delay(in seconds),
+	// * the probability of loss in each
+	// * direction, and the speed of the bottleneck link(in Mbps).
+	if (argc != 8)
+	{
+		FATAL("Usage: %s <dest> <buffer size power> <window size> <RTT> <fwd loss prob> <rev loss prob> <bottleneck speed>", argv[0]);
+	}
+ 
+	char* target_host = argv[1];
+	int buffer_size_pwr = atoi(argv[2]);
+	int window_size = atoi(argv[3]);
+ 
+ 
+	LinkProps props = { 0 };
+	props.RTT = atof(argv[4]);
+	props.p_loss[FWD_PATH] = atof(argv[5]);
+	props.p_loss[RET_PATH] = atof(argv[6]);
+	props.speed = atof(argv[7]) * 1000000;
+	props.buffer_size = window_size + MAX_ATTEMPTS;
+ 
+	WSADATA data;
+	if (WSAStartup(MAKEWORD(2, 2), &data))
+	{
+		FATAL("WSAStartup failed with %d\n", WSAGetLastError());
+		return 1;
+	}
+ 
+ 
+	printf("Main: sender W = %d, RTT %g sec, loss %g / %g, link %g Mbps\n",
+		window_size, props.RTT, props.p_loss[FWD_PATH], props.p_loss[RET_PATH], props.speed / 1000000);
+ 
+	printf("Main: initializing DWORD array with 2^%d elements... ", buffer_size_pwr);
+	clock_t ts = clock();
+	UINT64 buffer_size = 1llu << buffer_size_pwr;
+	DWORD* buffer = new DWORD[buffer_size];
+	//memset(buffer, 0, buffer_size * sizeof(DWORD));
+	for (int i = 0; i < buffer_size; i++)	buffer[i] = i;
+	printf("done in % d ms\n", clock() - ts);
+ 
+ 
+	SenderSocket ss;
+	int status;
+ 
+	if ((status = ss.Open(target_host, MAGIC_PORT, window_size, &props)) != STATUS_OK)
+	{
+		printf("Main: connect failed with status %d\n", status);	// use FATAL?
+		WSACleanup();
+		delete[] buffer;
+		return 1;
+	}
+	printf("Main: connected to %s in %.3f sec, pkt size %d bytes\n", target_host, (clock() - ts) / 1000.0, MAX_PKT_SIZE);
+ 
+	UINT64 payload_bytes = MAX_PKT_SIZE - sizeof(TxDataHeader);
+	UINT64 buf_size_bytes = buffer_size * sizeof(DWORD);
+	ts = clock();
+	for (UINT64 off = 0; off < buf_size_bytes; off += payload_bytes)
+	{
+		UINT64 len = min(payload_bytes, buf_size_bytes - off);
+		if ((status = ss.Send((char*)buffer + off, len)) != STATUS_OK)
+		{
+			printf("Main: send failed with status %d\n", status);
+			delete[] buffer;
+			WSACleanup();
+			return 1;
+		}
+	}
+ 
+ 
+	double tt = (clock() - ts) / 1000.0;
+ 
+	ts = clock();
+	if ((status = ss.Close()) != STATUS_OK)
+	{
+		printf("Main: disconnect failed with status %d\n", status);
+		delete[] buffer;
+		WSACleanup();
+		return 1;
+	}
+ 
+	Checksum cs;
+	DWORD crc = cs.CRC32((byte*)buffer, buf_size_bytes);
+	printf("Main: transfer finished in %.3f sec, %.2f Kbps, checksum %X\n", tt,
+		buf_size_bytes * 8.0 / tt / 1000.0, crc);
+	printf("Main: estRTT %.3f, ideal rate %.2f Kbps\n",
+		ss.EstRTT(), window_size * payload_bytes * 8.0 / ss.EstRTT() / 1000.0);
+ 
+	WSACleanup();
+	delete[] buffer;
+	return 0;
+}
+ 
+ 
+### HW3P3_Submission/SenderSocket.h
+ 
+#pragma once
+ 
+#include "pch.h"
+ 
+#include "Util.h"
+ 
+#define	MAGIC_PORT		22345
+#define	MAX_PKT_SIZE	(1500-28)
+ 
+#define STATUS_OK		0
+ 
+// possible status codes from ss.Open, ss.Send, ss.Close
+#define STATUS_OK			0	// no error
+#define ALREADY_CONNECTED	1	// second call to ss.Open() without closing connection
+#define NOT_CONNECTED		2	// call to ss.Send()/Close() without ss.Open()
+#define INVALID_NAME		3	// ss.Open() with targetHost that has no DNS entry
+#define FAILED_SEND			4	// sendto() failed in kernel
+#define TIMEOUT				5	// timeout after all retx attempts are exhausted
+#define FAILED_RECV			6	// recvfrom() failed in kernel
+ 
+ 
+#define MAGIC_PROTOCOL 0x8311AA 
+#define FWD_PATH	0
+#define RET_PATH	1
+ 
+#define MAX_ATTEMPTS_SYN	3
+#define MAX_ATTEMPTS		50
+ 
+#define PKT_SYN				0		// TODO: needed?
+#define PKT_DATA			1
+#define PKT_FIN				2
+ 
+#define RTT_ALPHA			0.125
+#define RTT_BETA			0.25
+ 
+#pragma pack(push, 1)
+ 
+struct Flags
+{
+	DWORD	res : 5;
+	DWORD	syn : 1;
+	DWORD	ack : 1;
+	DWORD	fin : 1;
+	DWORD   magic : 24;
+	Flags() : res(0), syn(0), ack(0), fin(0), magic(MAGIC_PROTOCOL) {}
+};
+ 
+struct LinkProps
+{
+	float	RTT;
+	float	speed;
+	float	p_loss[2];
+	DWORD	buffer_size;
+};
+ 
+struct TxDataHeader
+{
+	Flags	flags;
+	DWORD	seq;
+	TxDataHeader() : flags(), seq() {}
+};
+ 
+ 
+struct TxSynHeader
+{
+	TxDataHeader	sdh;
+	LinkProps		lp;
+	TxSynHeader() : sdh(), lp() {}
+};
+ 
+struct RxHeader
+{
+	Flags	flags;
+	DWORD	rcv_wnd;
+	DWORD	ack_seq;
+};
+ 
+struct Packet
+{
+	int type;
+	int size;
+	clock_t tx_time;
+	char pkt[MAX_PKT_SIZE];
+};
+ 
+#pragma pack(pop)
+ 
+ 
+class SenderSocket
+{
+	SOCKET sock{ INVALID_SOCKET };
+ 
+	clock_t ts;
+	bool conn{ false };
+	int timeout{ 0 };
+ 
+	struct sockaddr_in local {};
+	struct sockaddr_in remote {};
+ 
+	double rto{ 0 };
+	double est_rtt{ 0 };
+	double dev_rtt{ 0 };
+ 
+	uint sender_base{ 0 };
+	uint next_seq{ 0 };
+	uint next_tx{ 0 };
+	uint win_size{ 0 };
+	uint last_rel{ 0 };
+	Packet* pkts{ NULL };
+ 
+	HANDLE empty{ NULL };				// Fields from the PDF for part 3
+	HANDLE full{ NULL };
+	HANDLE event_quit{ NULL };
+	HANDLE sock_rx_ready{ NULL };
+ 
+	HANDLE worker_thread{ NULL };
+	HANDLE stats_thread{ NULL };
+ 
+	int dup_ack_cnt{ 0 };
+	int retx_cnt{ 0 };
+	int total_retx_cnt{ 0 };
+	int total_fast_retx{ 0 };
+ 
+	inline double TS()
+	{
+		return (clock() - ts) / 1000.0;
+	}
+ 
+	int SendPacket(byte* buf, int len);
+ 
+	int WaitOnAck(byte* buf, int len);
+ 
+	void WorkerThread();
+ 
+	void StatsThread();
+ 
+	static DWORD WINAPI StartWorkerThread(LPVOID _this)
+	{
+		((SenderSocket*)_this)->WorkerThread();
+		return 0;
+	}
+ 
+	static DWORD WINAPI StartStatsThread(LPVOID _this)
+	{
+		((SenderSocket*)_this)->StatsThread();
+		return 0;
+	}
+ 
+public:
+ 
+	SenderSocket()
+	{
+		ts = clock();
+	}
+ 
+	int Open(char* host, ushort port, int window_size, LinkProps* props);
+ 
+	int Send(char* buf, size_t len);	// TODO: replace char* with byte*
+ 
+	int Close();
+ 
+	inline double EstRTT()
+	{
+		return est_rtt;
+	}
+ 
+	~SenderSocket();
+};
+ 
+### HW3P3_Submission/pch.cpp
+ 
+// pch.cpp: source file corresponding to the pre-compiled header
+ 
+#include "pch.h"
+ 
+// When you are using pre-compiled headers, this source file is necessary for compilation to succeed.
+ 
+ 
+### HW3P3_Submission/SenderSocket.cpp
+ 
+#include "pch.h"
+#include "SenderSocket.h"
+ 
+ 
+int SenderSocket::SendPacket(byte* buf, int len)
+{
+	if (sendto(sock, (char*)buf, len, 0, (struct sockaddr*)&remote, sizeof(remote)) == SOCKET_ERROR)
+	{
+		printf("[%.3f]\t--> failed sendto with %d\n", TS(), WSAGetLastError());
+		return FAILED_SEND;
+	}
+	return STATUS_OK;
+}
+ 
+int SenderSocket::WaitOnAck(byte* buf, int len)
+{
+	// TODO: encapsulate send and recive logic into seperate logic into replicable functions
+	//		or like send<-> wait for ack or something
+	// ^ TODO completed
+	fd_set fd;
+	FD_ZERO(&fd);
+	FD_SET(sock, &fd);
+	timeval tv;
+	tv.tv_sec = (int)rto;
+	tv.tv_usec = (int)((rto - tv.tv_sec) * 1000000);
+	int avail, resp_size;
+	if ((avail = select(0, &fd, NULL, NULL, &tv)) > 0)
+	{
+		struct sockaddr_in reply;
+		int reply_addr_len = sizeof(reply);
+		if ((resp_size = recvfrom(sock, (char*)buf, len, 0, (struct sockaddr*)&reply, &reply_addr_len)) == SOCKET_ERROR)
+		{
+			printf("[%.3f]\t<-- failed recvfrom with %d\n", TS(), WSAGetLastError());
+			return FAILED_RECV;
+		}
+		/*	rto = 3 * ((double)(clock() - sent_at) / 1000.0);
+			printf("[%.3f]\t<-- SYN-ACK %d window %d; setting initial RTO to %.3f\n", TS(), resp.ack_seq, resp.rcv_wnd, rto);*/
+		return STATUS_OK;
+	}
+	else if (avail == 0) return TIMEOUT;
+	else return FAILED_RECV;
+}
+ 
+ 
+ 
+int SenderSocket::Open(char* host, ushort port, int window_size, LinkProps* props)
+{
+	if (conn) return ALREADY_CONNECTED;
+	this->win_size = window_size;
+	this->rto = max(1.0, 2.0 * props->RTT);
+ 
+	local.sin_family = AF_INET;
+	local.sin_addr.s_addr = INADDR_ANY;
+	local.sin_port = 0;
+ 
+	remote.sin_family = AF_INET;
+	remote.sin_port = htons(port);
+ 
+	// pulled from HW3
+	DWORD ip;
+	struct hostent* rhe;
+ 
+	if ((ip = inet_addr(host)) != INADDR_NONE)
+	{
+		remote.sin_addr.S_un.S_addr = ip;
+	}
+	else
+	{
+		if ((rhe = (hostent*)gethostbyname(host)) == nullptr)
+		{
+			//FATAL("failed with %d", WSAGetLastError());
+			return INVALID_NAME;
+		}
+		else
+		{
+			// I had a hate comment here on HW3
+			//memcpy(&remote.sin_addr, rhe->h_addr, rhe->h_length);
+			ip = *(DWORD*)rhe->h_addr;
+			remote.sin_addr.S_un.S_addr = ip;
+		}
+	}
+ 
+	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == INVALID_SOCKET)
+	{
+		return FAILED_SEND;
+	}
+ 
+	if (bind(sock, (struct sockaddr*)&local, sizeof(local)) == SOCKET_ERROR)
+	{
+		return FAILED_SEND;
+	}
+ 
+	DWORD kb_rx = 20000000, kb_tx = 20000000;
+	setsockopt(sock, SOL_SOCKET, SO_RCVBUF, (char*)&kb_rx, sizeof(DWORD));
+	setsockopt(sock, SOL_SOCKET, SO_SNDBUF, (char*)&kb_tx, sizeof(DWORD));
+ 
+	TxSynHeader syn;
+	syn.sdh.flags = Flags();
+	syn.sdh.flags.syn = 1;
+	syn.sdh.seq = 0;
+	syn.lp = *props;
+ 
+	struct in_addr addr;
+	addr.s_addr = ip;
+ 
+	int status;
+	for (int i = 1; i <= MAX_ATTEMPTS_SYN; i++)
+	{
+		//printf("[%.3f]\t--> SYN 0 (attempt %d of %d, RTO %.3f) to %s\n",
+		//	TS(), i, MAX_ATTEMPTS_SYN, rto, inet_ntoa(addr));
+ 
+ 
+		clock_t sent_at = clock();
+		if ((status = SendPacket((byte*)&syn, sizeof(syn))) != STATUS_OK)
+			return status;
+ 
+		RxHeader resp;
+		if ((status = WaitOnAck((byte*)&resp, sizeof(resp))) == STATUS_OK)
+		{
+			// Successful
+ 
+			rto = 3 * ((double)(clock() - sent_at) / 1000.0);
+			//printf("[%.3f]\t<-- SYN-ACK %d window %d; setting initial RTO to %.3f\n", TS(), resp.ack_seq, resp.rcv_wnd, rto);
+ 
+			pkts = new Packet[win_size];
+ 
+			empty = CreateSemaphore(NULL, 0, win_size, NULL);
+			full = CreateSemaphore(NULL, 0, win_size, NULL);
+			event_quit = CreateEvent(NULL, true, false, NULL);
+			sock_rx_ready = CreateEvent(NULL, false, false, NULL);
+			WSAEventSelect(sock, sock_rx_ready, FD_READ);
+ 
+			sender_base = 0;
+			next_seq = 0;
+			next_tx = 0;
+ 
+			last_rel = min(win_size, resp.rcv_wnd);
+			ReleaseSemaphore(empty, last_rel, NULL);
+ 
+ 
+			worker_thread = CreateThread(NULL, 0, StartWorkerThread, this, 0, NULL);
+			stats_thread = CreateThread(NULL, 0, StartStatsThread, this, 0, NULL);
+ 
+			conn = true;
+			return STATUS_OK;
+		}
+		else if (status == TIMEOUT) continue;
+		else return status;
+	}
+ 
+	return TIMEOUT;
+}
+ 
+ 
+ 
+ 
+int SenderSocket::Close()
+{
+	if (!conn) return NOT_CONNECTED;
+ 
+	while (sender_base < next_seq) Sleep(1);
+ 
+	SetEvent(event_quit);
+	WaitForSingleObject(worker_thread, INFINITE);
+	WaitForSingleObject(stats_thread, INFINITE);
+ 
+	WSAEventSelect(sock, sock_rx_ready, 0);
+	u_long mode = 0;		//bro
+	ioctlsocket(sock, FIONBIO, &mode);
+ 
+	TxDataHeader fin;
+	fin.flags = Flags();
+	fin.flags.fin = 1;
+	fin.seq = sender_base;
+ 
+	int status;
+	for (int i = 1; i <= MAX_ATTEMPTS; i++)
+	{
+		//printf("[%.3f]\t--> FIN %d (attempt %d of %d, RTO %.3f)\n",
+			//TS(), fin.seq, i, MAX_ATTEMPTS, rto);
+ 
+		if ((status = SendPacket((byte*)&fin, sizeof(fin))) != STATUS_OK)
+			return status;
+ 
+		RxHeader resp;
+		if ((status = WaitOnAck((byte*)&resp, sizeof(resp))) == STATUS_OK)
+		{
+			printf("[%.3f]\t<-- FIN-ACK %d window %X\n", TS(), resp.ack_seq, resp.rcv_wnd);		//X?
+			conn = false;
+			closesocket(sock);
+			sock = INVALID_SOCKET;
+			delete[] pkts;
+			pkts = NULL;
+			CloseHandle(empty);
+			CloseHandle(full);
+			CloseHandle(event_quit);
+			CloseHandle(sock_rx_ready);
+			CloseHandle(worker_thread);
+			CloseHandle(stats_thread);
+			return STATUS_OK;
+		}
+		else if (status == TIMEOUT) continue;
+		else return status;
+	}
+	return TIMEOUT;
+}
+ 
+ 
+int SenderSocket::Send(char* buf, size_t len)
+{
+	using TDH = TxDataHeader;
+ 
+	if (!conn) return NOT_CONNECTED;
+ 
+	// mostly from HW3 pdf:
+	HANDLE arr[] = { event_quit, empty };
+	DWORD res;
+	if ((res = WaitForMultipleObjects(2, arr, false, INFINITE)) == WAIT_OBJECT_0)
+		return TIMEOUT;
+ 
+	int slot = next_seq % win_size;
+	Packet* p = pkts + slot;
+	TDH* hdr = (TDH*)p->pkt;
+	hdr->flags = Flags();
+	hdr->seq = next_seq++;
+	memcpy(p->pkt + sizeof(TDH), buf, len);
+ 
+	p->type = PKT_DATA;
+	p->size = sizeof(TDH) + len;
+ 
+	ReleaseSemaphore(full, 1, NULL);
+ 
+	return STATUS_OK;
+}
+ 
+void SenderSocket::WorkerThread()
+{
+	SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+	// also a lot from HW3 pdf:
+	HANDLE events[] = { sock_rx_ready, full, event_quit };
+	DWORD res;
+	int timeout_, err;
+ 
+	while (true)
+	{
+		if (next_tx > sender_base)		// pending packets
+		{
+			double elapsed = ((clock() - pkts[sender_base % win_size].tx_time) / 1000.0);
+ 
+			timeout_ = max(0, (int)((rto - elapsed) * 1000));
+		}
+		else timeout_ = INFINITE;
+ 
+		switch ((res = WaitForMultipleObjects(ARR_LEN(events), events, false, timeout_)))
+		{
+ 
+		case WAIT_TIMEOUT:
+		{
+			total_retx_cnt++;
+			if (++retx_cnt >= MAX_ATTEMPTS)
+			{
+				SetEvent(event_quit);
+				return;
+			}
+			Packet* p = pkts + (sender_base % win_size);
+			p->tx_time = clock();
+			sendto(sock, p->pkt, p->size, 0, (struct sockaddr*)&remote, sizeof(remote));
+			break;
+		}
+ 
+		case WAIT_OBJECT_0:
+		{
+			RxHeader resp;
+			struct sockaddr_in reply;
+			int reply_addr_len = sizeof(reply), resp_size, new_rel;
+			if ((resp_size = recvfrom(sock, (char*)&resp, sizeof(resp), 0, (struct sockaddr*)&reply, &reply_addr_len)) < 0)
+			{
+				if ((err = WSAGetLastError()) == WSAEWOULDBLOCK)
+					break;
+				SetEvent(event_quit);
+				return;
+			}
+			if (resp.ack_seq > sender_base)
+			{
+ 
+				if (retx_cnt == 0)
+				{
+					Packet* ackd = pkts + ((resp.ack_seq - 1) % win_size);
+					double x_rtt = (clock() - ackd->tx_time) / 1000.0;
+ 
+					if (est_rtt == 0)			// CMOV?
+					{
+						est_rtt = x_rtt;
+						dev_rtt = 0;
+					}
+					else
+					{
+						// params called alpha and beta in slides i think
+						est_rtt = (1 - RTT_ALPHA) * est_rtt + RTT_ALPHA * x_rtt;
+						dev_rtt = (1 - RTT_BETA) * dev_rtt + 0.25 * abs(x_rtt - est_rtt);
+					}
+					rto = est_rtt + 4 * max(dev_rtt, 0.01);
+				}
+ 
+				sender_base = resp.ack_seq;
+				retx_cnt = 0;
+				dup_ack_cnt = 0;
+ 
+				if ((new_rel = sender_base + min(win_size, resp.rcv_wnd) - last_rel) > 0)
+				{
+					ReleaseSemaphore(empty, new_rel, NULL);
+					last_rel += new_rel;
+				}
+			}
+			else if (resp.ack_seq == sender_base && (next_tx - sender_base) >= 3 && dup_ack_cnt < 3)
+			{
+				if (++dup_ack_cnt == 3)
+				{
+					total_fast_retx++;
+					retx_cnt = 1;		//?
+					Packet* p = pkts + (sender_base % win_size);
+					p->tx_time = clock();
+					sendto(sock, p->pkt, p->size, 0, (struct sockaddr*)&remote, sizeof(remote));
+				}
+			}
+			break;
+		}
+ 
+		case WAIT_OBJECT_0 + 1:
+		{	// Fix C2361
+ 
+			Packet* p = pkts + (next_tx % win_size);
+			p->tx_time = clock();
+			sendto(sock, p->pkt, p->size, 0, (struct sockaddr*)&remote, sizeof(remote));
+			next_tx++;
+			break;
+		}
+		default: return;	// err
+		}
+	}
+}
+ 
+void SenderSocket::StatsThread()
+{
+	uint prev_base = 0;
+	while (WaitForSingleObject(event_quit, 2000) == WAIT_TIMEOUT)
+	{
+		double speed = (sender_base - prev_base) * 8.0 * (MAX_PKT_SIZE - sizeof(TxDataHeader)) / 2.0 / 1e6;
+ 
+		printf("[%3.0f]\tB %d (%3.1f MB) N %d T %d F %d W %d S %.3f Mbps RTT %.3f\n",		// TODO: tabs?
+			TS(),
+			sender_base,
+			sender_base * (MAX_PKT_SIZE - sizeof(TxDataHeader)) / 1e6,
+			next_seq,
+			total_retx_cnt,
+			total_fast_retx,
+			win_size,		// TODO: 
+			speed,
+			est_rtt);
+ 
+		prev_base = sender_base;
+	}
+}
+ 
+ 
+SenderSocket::~SenderSocket()
+{
+	if (!conn) return;
+	SetEvent(event_quit);
+	WaitForSingleObject(worker_thread, INFINITE);
+	WaitForSingleObject(stats_thread, INFINITE);
+	closesocket(sock);
+	delete[] pkts;
+	CloseHandle(empty);
+	CloseHandle(full);
+	CloseHandle(event_quit);
+	CloseHandle(sock_rx_ready);
+	CloseHandle(worker_thread);
+	CloseHandle(stats_thread);
+}
+ 
+ 
+### HW3P3_Submission/Util.h
+ 
+#pragma once
+ 
+#include "pch.h"
+ 
+using uint = unsigned int;
+using ushort = unsigned short;
+using ulong = unsigned long long;
+ 
+#define FATAL(FMT, ...)	fprintf(stderr, FMT "\n", __VA_ARGS__)
+ 
+#define ARR_LEN(A) (sizeof(A) / sizeof(*A))
+ 
+ 
+ 
+### HW3P3_Submission/Checksum.h
+ 
+#pragma once
+ 
+#include "Util.h"
+ 
+// Copied from the homework PDF
+ 
+class Checksum
+{
+	DWORD crc_table[256];
+public:
+	Checksum();
+ 
+	DWORD CRC32(byte* buf, size_t len);
+};

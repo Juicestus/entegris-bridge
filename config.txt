@@ -1,0 +1,11 @@
+test_host=127.0.0.1
+test_port=4002
+test_com=1
+test_pump_addr=1
+
+little_endian=1
+size_includes_header=1
+lserial_base=1
+
+timeout_ms=1000
+log_path=logs/entegris.log
