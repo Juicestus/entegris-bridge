@@ -33,8 +33,8 @@ int Config::Load(const char* path)
 		if ((pos = line.find('=')) == std::string::npos)
 			continue;
 
-		std::string key = line.substr(0, pos),
-					value = line.substr(pos+1);
+		std::string key = line.substr(0, pos), 
+					value = line.substr(pos + 1);
 
 #define ENTRY_STR(KEY, N)	if (key == #KEY) strncpy(KEY, value.c_str(), N)
 #define ENTRY_NUM(KEY, T)	if (key == #KEY) KEY = (T)std::stoi(value)

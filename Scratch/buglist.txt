@@ -1,0 +1,30 @@
+Running bug list
+
+Config.cpp
+
+ std::stoi throws on bad input — use strtol + end-pointer check
+ no whitespace trim — key = value silently never matches
+ defaults are placeholders — should be LE, size includes header, logical_com1 = 0, port 8888, nonzero timeout
+ FromArgs can't report failure — bad -f path runs on defaults
+ logical_com1 printed with BOOLYN — use %hu
+
+Util.h
+
+ Wire16/Wire32 take be, Config stores little_endian — flip the helper's polarity
+ FATAL needs ##__VA_ARGS__ for GCC
+ __forceinline, _byteswap_* are MSVC-only
+ POSIX branch doesn't define SOCKET, INVALID_SOCKET, DWORD, byte
+ _CRT_SECURE_NO_WARNINGS only works if Util.h is always the first include
+
+NCSProto.h (new)
+
+ NCSRequest defaults cmd to NCS_SEND_PACKET — the one command that reaches a pump. A request that forgets to set cmd would try to tunnel. Default to NCS_GET_VERSION, or no valid default and have Build reject it.
+ NCSResponse members uninitialized — if Parse fails early, body/rc are garbage. Brace-init them.
+ Build must reject NCS_LOCK_INTERFACE / NCS_UNLOCK_INTERFACE outright
+ Build must check 18 + data_len fits both cap and a uint16_t size field
+ enum class fields in the packed structs: byteswap as uint16_t before interpreting as the enum, so casts at every Wire16 call
+ nit: NCSCommand::NCS_GET_NAME repeats the prefix — with enum class, NCSCommand::GET_NAME reads fine
+
+NetInterface.h (new)
+
+ socket timeout vs NCS timeout. Both come from cfg->timeout_ms. The socket timeout must be longer than the header's timeout field, or your socket gives up before the NCS can send back ERR_SERIAL_READ_TIMEOUT, and you lose that diagnostic. Socket = NCS timeout + margin. Mostly a 1b issue, but set it up now.
