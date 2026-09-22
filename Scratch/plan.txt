@@ -1,6 +1,0 @@
-1	NCSProtocol.cpp	NCSRequest::Build, NCSResponse::Parse	nothing — pure
-2	NCSProtocolTest.cpp	fixture tests for 1: exact bytes of a built GET_VERSION, parse of fake responses (good, short, size mismatch, nonzero rc)	1
-3	NetInterface.cpp	InitNet, CloseNet, ResolveHost, Open, Send, RecvAll, Close, destructor — WinSock only for now	nothing
-4	NCSClient.h + NCSClient.cpp	header isn't written yet: Init, private Transact, GetVersion, GetName, GetInterfaces, QueryInterface, LSerial	1, 3
-5	mock_ncs.py	answers commands 1–4 over TCP 8888, reads the same config file	nothing
-6	Main.cpp	load config, sweep little_endian × size_includes_header on GET_VERSION, then GET_NAME, GET_INTERFACES, QUERY_INTERFACE for COMs 1–8 sweeping logical_com1, print results	all
