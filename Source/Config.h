@@ -34,4 +34,26 @@ struct Config
 	static Config FromArgs(int argc, char** argv);
 
 	void Print() const;
+
+
+
+	/**
+	 * Byteorder swap
+	 */
+	FORCEINLINE uint16_t Net16(uint16_t x) const 
+	{
+		return little_endian ? x : BSWAP16(x);
+	}
+	FORCEINLINE uint16_t Host16(uint16_t x) const
+	{
+		return little_endian ? x : BSWAP16(x); 
+	}
+	FORCEINLINE uint32_t Net32(uint32_t x) const
+	{
+		return little_endian ? x : BSWAP32(x);
+	}
+	FORCEINLINE uint32_t Host32(uint32_t x) const
+	{
+		return little_endian ? x : BSWAP32(x);
+	}
 };

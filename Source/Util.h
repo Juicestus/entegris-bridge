@@ -21,6 +21,8 @@
 #include <Windows.h>
 #pragma comment(lib, "ws2_32.lib")
 
+using ssize_t = SSIZE_T;
+
 #else
 /* unix specific */
 #endif
@@ -34,15 +36,31 @@ using ushort = unsigned short;
 #define BOOLTF(BOOL)	( (BOOL) ? "TRUE" : "FALSE" )		// bool -> true/false string
 #define BOOLYN(BOOL)	( (BOOL) ? "YES" : "NO" )			// bool -> yes/no string 
 
-// serial layer is LE per CommSpec, NCS header assumed LE too, so these are
-// no-ops on an LE host unless the config says the NCS header is BE
-// TODO: make portable
-__forceinline uint16_t Wire16(uint16_t v, bool be) 
-{ 
-	return be ? _byteswap_ushort(v) : v; 
-}
-__forceinline uint32_t Wire32(uint32_t v, bool be) 
-{ 
-	return be ? (uint32_t)_byteswap_ulong(v) : v; 
-}
 
+#if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__)
+// should never err 
+#error "Big-endian hosts are not supported"		
+#endif
+
+
+#ifndef FORCEINLINE
+#if defined(_MSC_VER)
+#define FORCEINLINE		__forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define FORCEINLINE		inline __attribute__((always_inline))
+#else
+#define FORCEINLINE		inline
+#endif
+#endif
+
+#if defined(_MSC_VER)
+#define BSWAP16(x)		_byteswap_ushort(x)
+#define BSWAP32(x)		((uint32_t)_byteswap_ulong(x))
+#elif defined(__GNUC__) || defined(__clang__)
+#define BSWAP16(x)		__builtin_bswap16(x)
+#define BSWAP32(x)		__builtin_bswap32(x)
+#else
+#define BSWAP16(x)		((uint16_t)(((x) >> 8) | ((x) << 8)))
+#define BSWAP32(x)		(((x) >> 24) | (((x) >> 8) & 0x0000FF00u) | \
+							 (((x) << 8) & 0x00FF0000u) | ((x) << 24))
+#endif
