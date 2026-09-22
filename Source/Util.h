@@ -16,6 +16,8 @@
 #ifdef _WIN32
 
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
+#define NOMINMAX
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <Windows.h>
@@ -64,3 +66,6 @@ using ushort = unsigned short;
 #define BSWAP32(x)		(((x) >> 24) | (((x) >> 8) & 0x0000FF00u) | \
 							 (((x) << 8) & 0x00FF0000u) | ((x) << 24))
 #endif
+
+
+

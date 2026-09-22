@@ -18,7 +18,7 @@ enum class NCSCommand : uint16_t			// TODO: rename
 
 enum class NCSReturnCode : uint16_t			// TODO: rename
 {
-	NONE = 0,
+	NO_ERR = 0,
 	INTERNAL = 1001,
 	UNKNOWN_COMMAND = 1002,
 	MALFORMED_PACKET = 1003,
@@ -72,6 +72,9 @@ struct NCSRequest
 	ushort		ctrl{ 0 };
 	byte*		data{ nullptr };
 	ushort		data_len{ 0 };
+	
+	NCSRequest() {}			// TODO: make sure these use defaults
+	NCSRequest(NCSCommand cmd) : cmd(cmd) {}
 
 	ssize_t Build(byte* buf, size_t cap, const Config* cfg);
 };
@@ -80,9 +83,10 @@ struct NCSResponse
 {
 	byte			buf[NCS_MAX_PKT];
 	size_t			len{ 0 };
-	NCSReturnCode	rc{ NCSReturnCode::NONE };
+	NCSReturnCode	rc{ NCSReturnCode::NO_ERR };
 	byte*			body{ nullptr };
 	size_t			body_len{ 0 };
 
 	ssize_t Parse(const Config* cfg);
+	ssize_t CopyStrOut(char* buf, size_t cap);
 };

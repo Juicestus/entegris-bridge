@@ -4,7 +4,7 @@
 
 using sockaddr_in_t = struct sockaddr_in;
 
-enum class NetErr : int 
+enum class NetErr : int
 {
 	OK = 0,
 	ERR_RESOLVE,	// bad IP / no DNS entry

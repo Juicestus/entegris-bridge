@@ -60,3 +60,16 @@ ssize_t NCSResponse::Parse(const Config* cfg)
 	return 0;
 }
 
+
+ssize_t NCSResponse::CopyStrOut(char* buf, size_t cap)
+{
+	if (!body_len)
+	{
+		return -1;			// no string
+	}
+	ssize_t n = std::min(body_len, cap - 1);
+	memcpy(buf, body, n);
+	buf[n] = 0;
+	return n;
+}
+
