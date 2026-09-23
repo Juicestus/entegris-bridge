@@ -12,15 +12,13 @@ enum class NCSErr : int
 	ERR_BUILD,
 	ERR_PARSE,
 	ERR_BODY,
-	ERR_NETWORK,
+	ERR_NETWORK,						// check neterr field
 	ERR_BAD_RC,
 	NOT_IMPL,
 };
 
 #define IGNORE_RC	false
 #define CHECK_RC	true
-
-
 
 #define NCS_IFACE_FIXED_LEN		12
 #define MAX_IFACE_TAIL			256
@@ -43,19 +41,19 @@ class NCSClient
 	ushort			port;
 	const Config*	cfg{ nullptr };
 
-	sockaddr_in_t	remote {};
-	bool			connected{ false };
+	sockaddr_in_t	remote{};
+	bool			resolved{ false };
+
+	NetErr			neterr{ NetErr::OK };
 
 	/*
 	 */
-	NCSErr Transact(const NCSRequest* req, NCSResponse* resp, NetErr& neterr, bool check_rc = CHECK_RC);
+	NCSErr Transact(const NCSRequest* req, NCSResponse* resp, bool check_rc = CHECK_RC);
 
 
 	// TODO: 1b + need better args for this definitely
 	NCSErr SendPacket(int com, byte* frame, ushort frame_len, byte* reply, size_t cap, size_t* reply_len);
 	//friend class PumpClient;
-
-
 
 public:
 
@@ -65,15 +63,14 @@ public:
 		strncpy_s(this->host, MAX_HOST_LEN, host, _TRUNCATE);
 	}
 
-	NetErr Init();
-
-
-	NCSErr GetVersion(char* buf, size_t cap, NetErr& neterr);
-	NCSErr GetName(char* buf, size_t cap, NetErr& neterr);
-	NCSErr GetInterfaces(uint& n, NetErr& neterr);
+	NCSErr Init();
+	NCSErr GetVersion(char* buf, size_t cap);
+	NCSErr GetName(char* buf, size_t cap);
+	NCSErr GetInterfaces(uint& n);
 
 	// NOTE: watch for rc UNKNOWN_SERIAL_PORT re. logical_com1
-	NCSErr QueryInterface(int com, NCSInterfaceInfo* info, NCSResponse* resp, NetErr& neterr);
+	NCSErr QueryInterface(int com, NCSInterfaceInfo* info, NCSResponse* resp);
 
 	inline ushort	LSerial(int com) { return (ushort)(com - 1 + cfg->logical_com1); }
+	inline NetErr	NetErr() const { return neterr;  }
 };

@@ -1,23 +1,23 @@
 #include "NCSClient.h"
 
 
-NetErr NCSClient::Init()
+NCSErr NCSClient::Init()
 {
-	NetErr status;
-	if ((status = NetInterface::ResolveHost(host, port, &remote)) != NetErr::OK)
-		return status;
-	connected = true;
-	return NetErr::OK;
+	if ((neterr = NetInterface::ResolveHost(host, port, &remote)) != NetErr::OK)
+		return NCSErr::ERR_NETWORK;
+	resolved = true;
+	return NCSErr::OK;
 }
-
 
 
 /*
  * 
  */
-NCSErr NCSClient::Transact(const NCSRequest* req, NCSResponse* resp, NetErr& neterr, bool check_rc /*= CHECK_RC*/)
+NCSErr NCSClient::Transact(const NCSRequest* req, NCSResponse* resp, bool check_rc /*= CHECK_RC*/)
 {
-	if (!connected) return NCSErr::NOT_CONNECTED;
+	neterr = NetErr::OK;
+
+	if (!resolved) return NCSErr::NOT_CONNECTED;
 
 	byte pkt[NCS_MAX_PKT];
 	int pkt_len;
@@ -73,32 +73,32 @@ NCSErr NCSClient::SendPacket(int com, byte* frame, ushort frame_len, byte* reply
 }
 
 
-NCSErr NCSClient::GetVersion(char* buf, size_t cap, NetErr& neterr)
+NCSErr NCSClient::GetVersion(char* buf, size_t cap)
 {
 	NCSRequest req(NCSCommand::GET_VERSION);
 	NCSResponse resp;
 	NCSErr status;
-	if ((status = Transact(&req, &resp, neterr)) == NCSErr::OK)
+	if ((status = Transact(&req, &resp)) == NCSErr::OK)
 		resp.CopyStrOut(buf, cap);		// copy out if is ok
 	return status;
 }
 
-NCSErr NCSClient::GetName(char* buf, size_t cap, NetErr& neterr)
+NCSErr NCSClient::GetName(char* buf, size_t cap)
 {
 	NCSRequest req(NCSCommand::GET_NAME);
 	NCSResponse resp;
 	NCSErr status;
-	if ((status = Transact(&req, &resp, neterr)) == NCSErr::OK)
+	if ((status = Transact(&req, &resp)) == NCSErr::OK)
 		resp.CopyStrOut(buf, cap);		// copy out if is ok
 	return status;
 }
 
-NCSErr NCSClient::GetInterfaces(uint& n, NetErr& neterr)
+NCSErr NCSClient::GetInterfaces(uint& n)
 {
 	NCSRequest req(NCSCommand::GET_INTERFACES);
 	NCSResponse resp;
 	NCSErr status;
-	if ((status = Transact(&req, &resp, neterr)) != NCSErr::OK)
+	if ((status = Transact(&req, &resp)) != NCSErr::OK)
 		return status;
 
 	/* decode as 32 and 16 bit */
@@ -133,7 +133,7 @@ NCSErr NCSClient::GetInterfaces(uint& n, NetErr& neterr)
 }
 
 
-NCSErr NCSClient::QueryInterface(int com, NCSInterfaceInfo* info, NCSResponse* resp, NetErr& neterr)
+NCSErr NCSClient::QueryInterface(int com, NCSInterfaceInfo* info, NCSResponse* resp)
 {
 	*info = NCSInterfaceInfo();
 
@@ -141,7 +141,7 @@ NCSErr NCSClient::QueryInterface(int com, NCSInterfaceInfo* info, NCSResponse* r
 	req.lserial = LSerial(com);
 
 	NCSErr status;
-	if ((status = Transact(&req, resp, neterr)) != NCSErr::OK)
+	if ((status = Transact(&req, resp)) != NCSErr::OK)
 		return status;
 
 	// check before the subtraction below, body_len is unsigned and would underflow

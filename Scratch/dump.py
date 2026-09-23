@@ -1,7 +1,7 @@
 import os
 import sys
 
-path = 'Source'
+path = '../Source'
 honly = '-h' in sys.argv
 
 write = print
@@ -26,4 +26,4 @@ for file in files:
 ''')
 
     
-    
+   

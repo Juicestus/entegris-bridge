@@ -67,7 +67,7 @@ static_assert(sizeof(NCSRespHeader) == NCS_HDR_LEN, "");
 
 struct NCSRequest
 {
-	NCSCommand	cmd{ NCSCommand::SEND_PACKET };
+	NCSCommand	cmd{ NCSCommand::GET_VERSION };	
 	ushort		lserial{ 0 };
 	ushort		ctrl{ 0 };
 	byte*		data{ nullptr };

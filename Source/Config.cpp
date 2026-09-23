@@ -3,17 +3,17 @@
 
 Config::Config()
 {
-	// TODO: reasonable defaults
 	test_host[0] = '\0';
-	test_port = 0;
+	test_port = 8888;		// NCS serial server default
 	test_com = 0;
 	test_pump_addr = 0;
 
-	little_endian = false;
-	size_includes_header = false;
-	logical_com1 = false;
+	// best guess at these three, swept at runtime
+	little_endian = true;			// serial layer is LSB-first, NCS is ARM, host is x86
+	size_includes_header = true;	// spec prose says the size field covers the whole packet
+	logical_com1 = 0;				// ports enumerate as /dev/ttyUSB0-7, so COM1 is likely 0
 
-	timeout_ms = 0;
+	timeout_ms = 5000;		// 0 means the NCS waits up to 64s, but our socket only waits timeout_ms + 1000
 	log_path[0] = '\0';
 }
 
@@ -67,8 +67,11 @@ int Config::Load(const char* path)
 	{
 		if (strcmp(argv[i], "-f") == 0)
 		{
-			if (i + 1 >= argc) 
+			if (i + 1 >= argc)
+			{
 				FATAL("-f flag requires a config file path");
+				break;
+			}
 
 			if (cfg.Load(argv[++i]) != 0)
 				FATAL("Failed to load config file: %s", argv[i]);

@@ -36,9 +36,9 @@ ssize_t NCSRequest::Build(byte* buf, size_t cap, const Config* cfg)
 
 ssize_t NCSResponse::Parse(const Config* cfg)
 {
-	//rc = NCSReturnCode::NONE;
-	//body = nullptr;
-	//body_len = 0;
+	rc = NCSReturnCode::NO_ERR;
+	body = nullptr;
+	body_len = 0;
 
 	if (len < sizeof(NCSRespHeader) || len > NCS_MAX_PKT)
 	{
@@ -63,6 +63,10 @@ ssize_t NCSResponse::Parse(const Config* cfg)
 
 ssize_t NCSResponse::CopyStrOut(char* buf, size_t cap)
 {
+	if (!buf || !cap)
+	{
+		return -1;			// no output space
+	}
 	if (!body_len)
 	{
 		return -1;			// no string
