@@ -17,6 +17,10 @@ enum class NCSErr : int
 	NOT_IMPL,
 };
 
+#define IGNORE_RC	false
+#define CHECK_RC	true
+
+
 
 #define NCS_IFACE_FIXED_LEN		12
 #define MAX_IFACE_TAIL			256
@@ -44,13 +48,14 @@ class NCSClient
 
 	/*
 	 */
-	NCSErr Transact(const NCSRequest* req, NCSResponse* resp, NetErr& neterr);
+	NCSErr Transact(const NCSRequest* req, NCSResponse* resp, NetErr& neterr, bool check_rc = CHECK_RC);
+
 
 	// TODO: 1b + need better args for this definitely
 	NCSErr SendPacket(int com, byte* frame, ushort frame_len, byte* reply, size_t cap, size_t* reply_len);
 	//friend class PumpClient;
 
-	NCSErr GetCmd(NCSCommand cmd, NCSResponse* resp, NetErr& neterr);
+
 
 public:
 
@@ -65,7 +70,7 @@ public:
 
 	NCSErr GetVersion(char* buf, size_t cap, NetErr& neterr);
 	NCSErr GetName(char* buf, size_t cap, NetErr& neterr);
-	NCSErr GetInterfaces(uint* n, NetErr& neterr);
+	NCSErr GetInterfaces(uint& n, NetErr& neterr);
 
 	// NOTE: watch for rc UNKNOWN_SERIAL_PORT re. logical_com1
 	NCSErr QueryInterface(int com, NCSInterfaceInfo* info, NCSResponse* resp, NetErr& neterr);
