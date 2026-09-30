@@ -2,7 +2,6 @@ import socket
 import struct
 from dataclasses import dataclass
 
-from config import SOCKET_MARGIN_MS, TIMEOUT_MS
 from ncs_protocol import (
     COUNT16_FORMAT,
     COUNT32_FORMAT,
@@ -19,6 +18,9 @@ from ncs_protocol import (
 )
 from util import dump_bytes
 
+TIMEOUT_MS          = 5000
+SOCKET_MARGIN_MS    = 1000
+MS_PER_SEC          = 1000
 
 class NCSError(Exception):
     """
@@ -63,7 +65,7 @@ class InterfaceInfo:
 
 
 class NCSClient:
-    def __init__(self, host, port, timeout_ms=TIMEOUT_MS):
+    def __init__(self, host: str, port: int, timeout_ms=TIMEOUT_MS):
         self.host = host
         self.port = port
         self.timeout_ms = timeout_ms
@@ -78,7 +80,7 @@ class NCSClient:
 
         # socket timeout has to outlast the header's timeout field, or we give up
         # before the NCS can tell us it timed out on the serial side (1b)
-        socket_timeout = (self.timeout_ms + SOCKET_MARGIN_MS) / 1000
+        socket_timeout = (self.timeout_ms + SOCKET_MARGIN_MS) / MS_PER_SEC 
 
         try:
             sock = socket.create_connection((self.host, self.port), timeout=socket_timeout)

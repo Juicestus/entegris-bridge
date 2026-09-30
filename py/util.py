@@ -24,3 +24,5 @@ def dump_bytes(label, data):
         # pad the last short line so the ascii column stays put
         padding = "   " * (BYTES_PER_LINE - len(chunk))
         print(f"    {offset:04x} {hex_part}{padding}  |{ascii_part}|")
+
+

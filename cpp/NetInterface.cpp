@@ -10,6 +10,10 @@
 		FATAL("WSAStartup failed with %d", err);
 		return NetErr::ERR_SOCKET;
 	}
+#else
+	// writing to a socket whose peer has closed raises SIGPIPE on POSIX,
+	// which kills the process instead of returning an error from send()
+	signal(SIGPIPE, SIG_IGN);
 #endif
 	return NetErr::OK;
 }
@@ -32,9 +36,13 @@
 	remote->sin_family = AF_INET;
 	remote->sin_port = htons(port);
 
-	DWORD ip;
+	unsigned long ip;
 	if ((ip = inet_addr(host)) != INADDR_NONE)
+#ifdef _WIN32
 		remote->sin_addr.S_un.S_addr = ip;
+#else
+		remote->sin_addr.s_addr = ip;
+#endif
 	else
 	{
 		struct hostent* he;
@@ -77,8 +85,13 @@ NetErr NetInterface::Open(struct sockaddr_in* remote, ushort timeout_ms)
 	{
 		RETURN_FAILED("Failed to create socket with %d", WSAGetLastError(), NetErr::ERR_SOCKET);
 	}
+#ifdef _WIN32
 	u_long mode = 1;
 	if (ioctlsocket(sock, FIONBIO, &mode) == SOCKET_ERROR)
+#else
+	int flags = fcntl(sock, F_GETFL, 0);
+	if (flags == -1 || fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1)
+#endif
 	{
 		RETURN_FAILED("failed to set non-blocking with %d", WSAGetLastError(), NetErr::ERR_SOCKET);
 	}
@@ -102,7 +115,7 @@ NetErr NetInterface::Open(struct sockaddr_in* remote, ushort timeout_ms)
 		tv.tv_sec = timeout_ms / 1000;
 		tv.tv_usec = (timeout_ms % 1000) * 1000;
 
-		if ((err = select(0, NULL, &wr, &ex, &tv)) == SOCKET_ERROR)
+		if ((err = select((int)sock + 1, NULL, &wr, &ex, &tv)) == SOCKET_ERROR)
 		{
 			RETURN_FAILED("select failed with %d", WSAGetLastError(), NetErr::ERR_CONNECT);
 		}
@@ -113,8 +126,14 @@ NetErr NetInterface::Open(struct sockaddr_in* remote, ushort timeout_ms)
 		// refused / unreachable shows up in the exception set
 		if (FD_ISSET(sock, &ex))
 		{
+#ifdef _WIN32
 			int so_err = 0, so_len = sizeof(so_err);
 			getsockopt(sock, SOL_SOCKET, SO_ERROR, (char*)&so_err, &so_len);
+#else
+			int so_err = 0;
+			socklen_t so_len = sizeof(so_err);
+			getsockopt(sock, SOL_SOCKET, SO_ERROR, &so_err, &so_len);
+#endif
 			RETURN_FAILED("connect failed with %d", so_err, NetErr::ERR_CONNECT);
 		}
 	}
@@ -122,13 +141,24 @@ NetErr NetInterface::Open(struct sockaddr_in* remote, ushort timeout_ms)
 	/**
 	 *  Set socket options 
 	 */
+#ifdef _WIN32
 	mode = 0;
 	if (ioctlsocket(sock, FIONBIO, &mode) == SOCKET_ERROR)
+#else
+	flags = fcntl(sock, F_GETFL, 0);
+	if (flags == -1 || fcntl(sock, F_SETFL, flags & ~O_NONBLOCK) == -1)
+#endif
 	{
 		RETURN_FAILED("failed to set blocking with %d", WSAGetLastError(), NetErr::ERR_SOCKET);
 	}
-	// SO_RCVTIMEO is a DWORD of ms here, a timeval on POSIX
+	// SO_RCVTIMEO is a DWORD of ms on Windows, a timeval on POSIX
+#ifdef _WIN32
 	DWORD tmo = timeout_ms;
+#else
+	struct timeval tmo;
+	tmo.tv_sec = timeout_ms / 1000;
+	tmo.tv_usec = (timeout_ms % 1000) * 1000;
+#endif
 	if (setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (char*)&tmo, sizeof(tmo)) == SOCKET_ERROR ||
 		setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (char*)&tmo, sizeof(tmo)) == SOCKET_ERROR)
 	{

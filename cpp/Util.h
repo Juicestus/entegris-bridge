@@ -30,17 +30,47 @@
 using ssize_t = SSIZE_T;
 
 #else
-/* unix specific */
+
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
+#include <signal.h>
+#include <limits.h>
+
+using SOCKET = int;
+#define INVALID_SOCKET	(-1)
+#define SOCKET_ERROR	(-1)
+#define SD_SEND			SHUT_WR
+#define MAX_PATH		PATH_MAX
+#define closesocket		close
+#define WSAGetLastError()	errno
+// connect() in progress: Windows returns WSAEWOULDBLOCK, POSIX returns EINPROGRESS
+#define WSAEWOULDBLOCK	EINPROGRESS
+#define WSAETIMEDOUT	ETIMEDOUT
+
+using byte = uint8_t;
+
 #endif
 
 using uint = unsigned int;
 using ushort = unsigned short;
 
-#define FATAL(FMT, ...)	fprintf(stderr, FMT "\n", __VA_ARGS__)
+#define FATAL(FMT, ...)	fprintf(stderr, FMT "\n", ##__VA_ARGS__)
 #define ARR_LEN(A)		(sizeof(A) / sizeof(*A))
 
+#ifdef _WIN32
+#define SAFE_STRCPY(DST, CAP, SRC)	strncpy_s(DST, CAP, SRC, _TRUNCATE)
+#else
+#define SAFE_STRCPY(DST, CAP, SRC)	do { strncpy(DST, SRC, (CAP) - 1); (DST)[(CAP) - 1] = '\0'; } while (0)
+#endif
+
 #define BOOLTF(BOOL)	( (BOOL) ? "TRUE" : "FALSE" )		// bool -> true/false string
-#define BOOLYN(BOOL)	( (BOOL) ? "YES" : "NO" )			// bool -> yes/no string 
+#define BOOLYN(BOOL)	( (BOOL) ? "YES" : "NO" )			// bool -> yes/no string
 
 
 #if defined(__BYTE_ORDER__) && (__BYTE_ORDER__ != __ORDER_LITTLE_ENDIAN__)

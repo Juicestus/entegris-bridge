@@ -59,7 +59,7 @@ public:
 	NCSClient(const char* host, ushort port, const Config* cfg)
 		: port(port), cfg(cfg)
 	{
-		strncpy_s(this->host, MAX_HOST_LEN, host, _TRUNCATE);
+		SAFE_STRCPY(this->host, MAX_HOST_LEN, host);
 	}
 
 	NCSErr Init();

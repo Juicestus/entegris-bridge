@@ -2,8 +2,7 @@ import struct
 from dataclasses import dataclass
 from enum import IntEnum
 
-# Entegris confirmed these, the C++ still reads them from its config file because it predates that
-ENDIAN = "<"
+ENDIAN = "<"        # confirmed by Entegris
 LOGICAL_COM1 = 0
 
 # request and response headers are the same size and shape, only the meaning of the fields differs

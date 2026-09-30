@@ -1,39 +1,25 @@
+"""
+Attempt to connect to an NCS box and query basic parameters
+"""
+
+
 import sys
 
-import config
-from ncs_client import ConnectError, NCSClient, NCSError, ReturnCodeError
-from ncs_protocol import COM_PORT_COUNT, LOGICAL_COM1, lserial
+from ncs_client import ConnectError, NCSClient, NCSError, ReturnCodeError, InterfaceInfo
+from ncs_protocol import COM_PORT_COUNT, LOGICAL_COM1, lserial 
 from util import PRINTABLE_MAX, PRINTABLE_MIN
-
-
-def yes_no(value):
-    return "YES" if value else "NO"
-
-
-def print_settings():
-    """
-    Print the settings in use, so a log someone sends back explains itself.
-    """
-    print(
-        "Settings:\n"
-        f"  host:              {config.HOST}\n"
-        f"  port:              {config.PORT}\n"
-        f"  timeout_ms:        {config.TIMEOUT_MS}\n"
-        f"  socket_margin_ms:  {config.SOCKET_MARGIN_MS}"
-    )
 
 
 def print_status(what, error):
     print(f"  {what} -> {type(error).__name__}: {error}")
 
-
-def print_interface(com, info):
+def print_interface(com: int, info: InterfaceInfo):
     """
     One row of the port table.
     """
-    line = (f"  COM{com}  {yes_no(info.enabled):<3}  baud {info.baud:6d}  served {info.served:8d}"
+    line = (f"  COM{com}  {'YES' if info.enabled else 'NO':<3}"
+            f"  baud {info.baud:6d}  served {info.served:8d}"
             f"  tail {len(info.tail):3d}")
-
     # printable chars out of the tail until we know the layout
     if info.tail:
         printable = ""
@@ -45,10 +31,13 @@ def print_interface(com, info):
 
 
 def main():
-    print("NCS probe. This only talks to the NCS box itself, nothing is sent to a pump.\n")
-    print_settings()
-
-    ncs = NCSClient(config.HOST, config.PORT)
+    
+    # Connecting to the following 
+    HOST = "127.0.0.1"
+    PORT = 4002
+    
+    print(f"Attempting conneciton to NCS on {HOST}:{PORT}")
+    ncs = NCSClient(HOST, PORT)
 
     # NCS info
 
@@ -58,7 +47,7 @@ def main():
     except ConnectError as error:
         # no point making more attempts against a box we can't reach
         print_status("GET_VERSION", error)
-        print(f"\n  Could not reach {config.HOST}:{config.PORT}, giving up.")
+        print(f"\n  Could not reach {HOST}:{PORT}, giving up.")
         return 1
     except NCSError as error:
         # we got through, so keep going, the rest of the dumps are still worth having
