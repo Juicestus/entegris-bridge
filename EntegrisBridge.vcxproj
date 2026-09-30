@@ -19,12 +19,19 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="Source\Config.cpp" />
-    <ClCompile Include="Source\Main.cpp" />
+    <ClCompile Include="cpp\Config.cpp" />
+    <ClCompile Include="cpp\Main.cpp" />
+    <ClCompile Include="cpp\NCSClient.cpp" />
+    <ClCompile Include="cpp\NCSProtocol.cpp" />
+    <ClCompile Include="cpp\NetInterface.cpp" />
+    <ClCompile Include="cpp\Util.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Source\Config.h" />
-    <ClInclude Include="Source\Util.h" />
+    <ClInclude Include="cpp\Config.h" />
+    <ClInclude Include="cpp\NCSClient.h" />
+    <ClInclude Include="cpp\NCSProtocol.h" />
+    <ClInclude Include="cpp\NetInterface.h" />
+    <ClInclude Include="cpp\Util.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -112,6 +119,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

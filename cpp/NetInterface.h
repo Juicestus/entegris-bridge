@@ -4,9 +4,8 @@
 
 using sockaddr_in_t = struct sockaddr_in;
 
-enum class NetErr : int
-{
-	OK = 0,
+DEFINE_REFLECTIVE_ENUM(NetErr, int,
+	OK,
 	ERR_RESOLVE,	// bad IP / no DNS entry
 	ERR_SOCKET,
 	ERR_CONNECT,
@@ -14,8 +13,7 @@ enum class NetErr : int
 	ERR_RECV,
 	ERR_TIMEOUT,
 	NOT_OPEN,
-	ALREADY_OPEN,
-};
+	ALREADY_OPEN)
 
 class NetInterface
 {

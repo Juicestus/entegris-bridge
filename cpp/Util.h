@@ -8,11 +8,14 @@
 #include <fstream>
 #include <string>
 #include <algorithm>
+#include <array>
+#include <string_view>
 
 #include <cstdio>
 #include <cstdint>
 #include <cassert>
 #include <cstring>
+#include <cstddef>
 
 #ifdef _WIN32
 
@@ -67,6 +70,42 @@ using ushort = unsigned short;
 #define BSWAP32(x)		(((x) >> 24) | (((x) >> 8) & 0x0000FF00u) | \
 							 (((x) << 8) & 0x00FF0000u) | ((x) << 24))
 #endif
+
+template <size_t N>
+constexpr std::array<char, N> __MakeNameBuffer(const char(&s)[N])
+{
+	std::array<char, N> buf{};
+	for (size_t i = 0; i < N; ++i)
+		buf[i] = (s[i] == ',' || s[i] == ' ') ? '\0' : s[i];
+	return buf;
+}
+
+template <size_t Count, size_t N>
+constexpr std::array<const char*, Count> __MakeNameTable(const std::array<char, N>& buf)
+{
+	std::array<const char*, Count> out{};
+	size_t idx = 0;
+	for (size_t i = 0; i < N && idx < Count; ++i)
+		if (buf[i] != '\0' && (i == 0 || buf[i - 1] == '\0'))
+			out[idx++] = &buf[i];
+	return out;
+}
+
+#define DEFINE_REFLECTIVE_ENUM(EnumName, Type, ...)									\
+	enum class EnumName : Type { __VA_ARGS__, COUNT_ };								\
+	inline constexpr auto EnumName##_buffer = __MakeNameBuffer(#__VA_ARGS__);		\
+	inline constexpr auto EnumName##_names = __MakeNameTable<static_cast<size_t>	\
+			(EnumName::COUNT_)>(EnumName##_buffer);									\
+	constexpr const char* ToString(EnumName e)										\
+	{																				\
+		auto i = static_cast<size_t>(e);											\
+		return i < EnumName##_names.size() ? EnumName##_names[i] : "?";				\
+	}
+
+/**
+ * Hex / ascii dump
+ */
+void PrintBytes(const char* label, const byte* buf, size_t len);
 
 
 

@@ -24,7 +24,7 @@ NCSErr NCSClient::Transact(const NCSRequest* req, NCSResponse* resp, bool check_
 	if ((pkt_len = ((NCSRequest*)req)->Build(pkt, sizeof(pkt), cfg)) < 0)		// TODO: make Build const
 		return NCSErr::ERR_BUILD;
 
-	//PrintBytes("-->", pkt, pkt_len);
+	PrintBytes("-->", pkt, pkt_len);
 	NetInterface net;
 
 	// socket timeout has to outlast the header's timeout field, or we give up
@@ -50,7 +50,7 @@ NCSErr NCSClient::Transact(const NCSRequest* req, NCSResponse* resp, bool check_
 	}
 	net.Close();
 
-	//PrintBytes("<--", resp->buf, resp->len);
+	PrintBytes("<--", resp->buf, resp->len);
 
 	if (resp->Parse(cfg))
 		return NCSErr::ERR_PARSE;

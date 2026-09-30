@@ -5,17 +5,16 @@
 #include "NCSProtocol.h"
 #include "NetInterface.h"
 
-enum class NCSErr : int
-{
-	OK = 0,
-	NOT_CONNECTED = 100,
+DEFINE_REFLECTIVE_ENUM(NCSErr, int,
+	OK,
+	NOT_CONNECTED,
 	ERR_BUILD,
 	ERR_PARSE,
 	ERR_BODY,
-	ERR_NETWORK,						// check neterr field
+	ERR_NETWORK,	// check neterr field
 	ERR_BAD_RC,
-	NOT_IMPL,
-};
+	NOT_IMPL)
+
 
 #define IGNORE_RC	false
 #define CHECK_RC	true
