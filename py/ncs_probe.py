@@ -1,5 +1,7 @@
 """
 Attempt to connect to an NCS box and query basic parameters
+
+Thise phase was successful... output from testing in docs/ncs_probe.out
 """
 
 
@@ -32,11 +34,11 @@ def print_interface(com: int, info: InterfaceInfo):
 
 def main():
     
-    # Connecting to the following 
-    HOST = "127.0.0.1"
-    PORT = 4002
+    # 2:10.25.85.52:8888:COM8
+    HOST = "10.25.85.52"
+    PORT = 8888
     
-    print(f"Attempting conneciton to NCS on {HOST}:{PORT}")
+    print(f"Attempting connection to NCS on {HOST}:{PORT}")
     ncs = NCSClient(HOST, PORT)
 
     # NCS info
