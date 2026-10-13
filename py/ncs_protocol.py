@@ -29,6 +29,11 @@ MAX_INTERFACE_COUNT = 64
 INTERFACE_FIXED_FORMAT = ENDIAN + "llL"
 INTERFACE_FIXED_LEN = struct.calcsize(INTERFACE_FIXED_FORMAT)
 
+# control bits for SEND_PACKET. with CTRL_CHK_CRC_PACKET set a frame with a bad CRC never reaches the bus
+CTRL_CHK_CRC_PACKET = 0x0001
+CTRL_CHK_CRC_DEVICE = 0x0002
+CTRL_AUTO_RETRY = 0x0004       # not used, a silent retry would hide a CRC problem we want to see while this is new
+
 
 class Command(IntEnum):
     SEND_PACKET = 0         # tunnels a pump frame, 1b

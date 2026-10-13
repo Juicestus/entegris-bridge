@@ -22,6 +22,13 @@ LOGICAL_COM1 = 0            # logical serial number that COM1 maps to
 IFACE_WIDTH = 4             # bytes GET_INTERFACES returns the count in, 2 or 4
 CLOSE_AFTER_RESPONSE = True # False makes the client hit its own recv timeout
 
+PUMP_COM = 8                # the one emulated pump sits on this COM port
+PUMP_ADDR = 2               # and answers to this address, anything else on the bus times out
+CORRUPT_REPLY = False       # True flips a bit in the pump's reply after its CRC is computed
+GATEWAY_CHECKS_CRC = True   # False ignores the CRC control bits, so a corrupt reply reaches the client's own check
+REFUSE = {}                 # pump command -> pump return code, e.g. {155: 32} makes DISPENSE_INFO want a password
+REFUSE_SVIDS = {}           # SVID number -> pump return code, any GET_SVIDS asking for one is refused with it
+
 # ---------------------------------------------------------------------------
 
 HDR_LEN = 18
@@ -43,7 +50,93 @@ NO_ERR                  = 0
 ERR_UNKNOWN_COMMAND     = 1002
 ERR_MALFORMED_PACKET    = 1003
 ERR_UNKNOWN_SERIAL_PORT = 1004
+ERR_INPUT_INVALID_CRC   = 1006
+ERR_INVALID_SERIAL_DATA = 1008
 ERR_SERIAL_READ_TIMEOUT = 1015
+ERR_SERIAL_OUTPUT_INVALID_CRC = 1016
+
+CTRL_CHK_CRC_PACKET = 0x0001
+CTRL_CHK_CRC_DEVICE = 0x0002
+
+# pump layer, always little endian whatever LITTLE_ENDIAN says about the gateway header
+PUMP_HDR_LEN = 4
+PUMP_CRC_LEN = 2
+PUMP_FIRMWAREINFO = 54
+PUMP_GOOD = 0
+PUMP_SIZE_ERROR = 1
+PUMP_BAD_CRC = 3
+PUMP_NOT_SUPPORTED = 36
+
+# ProductQualifier, Comms_Version, MajorVersion, ModuleType, MinorVersion, ProductCode, MapSize, CRC
+FIRMWARE_DEFAULTS = (1234, 0, 1011, 0, 1536, 0, 0, 0)
+
+PUMP_UNKNOWN_SVID = 13
+
+
+# Status .. OfflineState, shared by RTSTATUS and CS_RTSTATUS
+RT_COMMON_FMT = "hHLHHHHLLLHHHHHHLLLLLhhH"
+RT_COMMON = (3, 0x0011, 120000, 7, 1500, 98, 0, 450000, 120010, 45020,
+             0, 1, 2, 5, 8, 0, 812, 4500, 4400, 800, 119998, 8250, -1150, 0)
+
+PUMP_REPLIES = {
+    # VOLUMECOUNTERS
+    50: ("<6L", (5000, 1234567, 2345, 34567, 4567, 0)),
+    # CYCLECOUNTERS, 22 counters, 5 reserved, Reserved10, CRC
+    60: ("<27L2H", (11, 120000, 37, 45678, 45001, 902, 803, 46004,
+                    5005, 3, 1506, 1407, 38, 29, 1610,
+                    4011, 2, 1212, 1113, 24, 15, 1316,
+                    0, 0, 0, 0, 0, 0, 0xBEEF)),
+    # RTSTATUS, then ExternalRecValveEnable, ConsecutiveAutoVents, reserved5
+    100: ("<" + RT_COMMON_FMT + "Hll", RT_COMMON + (1, 4, 0)),
+    # CS_RTSTATUS, then Model, PumpSerialNumber, reserved3, reserved4, reserved5
+    110: ("<" + RT_COMMON_FMT + "24s24sHll", RT_COMMON + (b"IntelliGen MV", b"MV-0012345", 0, 0, 0)),
+    # PRESSURE_STATUS, floats picked to be exact in 32 bits
+    104: ("<hHflllflhHflllflhhLL", (0, 2048, 12.5, 12501, 100000, -14700, 12.25, 12250, 1225,
+                                    1900, 3.75, 3751, 50000, -14600, 3.5, 3500, 350, 0, 0, 2)),
+    # UTILITY_STATUS, three known temperatures then a guess at the rest
+    106: ("<22h", (2350, 2410, 2275, 2290, 450, 460) + (0,) * 16),
+    # VERSION
+    52: ("<16s16s24s48s", (b"", b"", b"IntelliGen MV", b"MV 1011.1536 Rev C")),
+    # SERIALNUMBERS
+    30: ("<" + "24s" * 12 + "LL", (b"MV-0012345", b"FM-221", b"DM-332", b"FP-443", b"DP-554", b"MB-665",
+                                   b"IB-776", b"IF-887", b"", b"", b"", b"", 1760000000, 450000)),
+    # LAST_DIS_INFO_2, DispenseVolume is mL x 1000
+    167: ("<4L", (120000, 1500, 0, 0)),
+    # SKIPSTEPINFO
+    166: ("<LhhLL", (119000, -3, 0, 0, 0)),
+    # DISPENSE_INFO, only the start is known, padded out to its stated size
+    155: ("<HHLLL24sHHh118x", (7, 0, 120000, 119000, 1760000100, b"LOT-A1", 4, 0, 1200)),
+    # DC_STATUS, size unknown, so anything
+    158: ("<8H", (1, 2, 3, 4, 5, 6, 7, 8)),
+}
+
+# Cycle is filled in from the request. Type_Encoding, SampleInterval, Time, StartCycle, DispenseEnd,
+# EndFiltration, EndCycle, FillEnd, UnencodedSize, then ten EncodedSize
+PROFILE_INFO_FMT = "<LHHLLLLLLL10L"
+PROFILE_INFO_REST = (0x0101, 10, 1760000200, 0, 120, 450, 900, 1000, 4000,
+                     400, 380, 360, 340, 320, 300, 280, 260, 240, 220)
+
+# Size in words, RecordType, CycleNum, TimeStamp, RecordNumber, AlarmNumber, Code, AlarmSeverity, Data.
+# newest first. only two stored, so asking for more gets a short list, like a real pump that gives up early
+ALARM_FMT = "<HHLLLLHHL"
+ALARMS = [
+    (14, 1, 119990, 1760000300, 4499, 812, 2101, 2, 77),
+    (14, 1, 119500, 1760000000, 4480, 811, 1305, 3, 0),
+]
+
+# SVID number -> struct code, or "s" for a string, and the value. strings
+# are kept an even length so the reply stays a whole number of words
+SVIDS = {
+    769: ("H", 1234), 771: ("H", 1011), 773: ("H", 1536),
+    257: ("h", 3), 796: ("H", 1500), 1056: ("L", 120000), 1058: ("L", 119998),
+    1048: ("L", 812), 1025: ("L", 1760000400),
+    269: ("h", 1225), 270: ("h", 350), 287: ("h", 8250), 288: ("h", -1150),
+    298: ("h", 2350), 299: ("h", 2410),
+    513: ("f", 12.25), 514: ("f", 3.5),
+    10: ("s", b"IntelliGenMV"), 13: ("s", b"FAB7"), 14: ("s", b"TRACK-03"),
+    15: ("s", b"COT2"), 18: ("s", b"PUMP-B"),
+    849: ("H", 97), 1071: ("L", 1760000100),
+}
 
 # what the fake box reports, shaped like the real About screen
 VERSION = b"Entegris IntelliGen NCS sserver 4.14"
@@ -59,6 +152,31 @@ def hexdump(label, data):
         hexpart = " ".join(f"{b:02x}" for b in chunk)
         txt = "".join(chr(b) if 32 <= b < 127 else "." for b in chunk)
         print(f"    {off:04x}  {hexpart:<47}  |{txt}|")
+
+
+def crc16_bitwise(data):
+    """CRC-16/ARC one bit at a time, deliberately not the table method the client uses"""
+    crc = 0
+    for b in data:
+        crc ^= b
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0xA001
+            else:
+                crc >>= 1
+    return crc
+
+
+def pump_crc_ok(frame):
+    # compares the stored complement directly, the client checks the residue instead
+    stored = struct.unpack("<H", frame[-PUMP_CRC_LEN:])[0]
+    return stored == (~crc16_bitwise(frame[:-PUMP_CRC_LEN]) & 0xFFFF)
+
+
+def pump_frame(addr, code, data=b""):
+    size = PUMP_HDR_LEN + len(data) + PUMP_CRC_LEN
+    body = struct.pack("<BBH", addr, code, size) + data
+    return body + struct.pack("<H", ~crc16_bitwise(body) & 0xFFFF)
 
 
 class Mock:
@@ -92,6 +210,101 @@ class Mock:
         body += b"/dev/ttyUSB%d\x00" % idx
         body += b"mock COM%d\x00" % (idx + 1)
         return self.response(NO_ERR, body)
+
+    def send_packet(self, lserial, ctrl, frame):
+        idx = lserial - LOGICAL_COM1
+        if idx < 0 or idx >= N_IFACE:
+            print(f"  ++ logical serial {lserial} out of range, base is {LOGICAL_COM1}")
+            return self.response(ERR_UNKNOWN_SERIAL_PORT)
+
+        if len(frame) < PUMP_HDR_LEN + PUMP_CRC_LEN:
+            print("  ++ data too short to be a pump frame")
+            return self.response(ERR_INVALID_SERIAL_DATA)
+
+        hexdump("  serial -->", frame)
+        if GATEWAY_CHECKS_CRC and ctrl & CTRL_CHK_CRC_PACKET and not pump_crc_ok(frame):
+            print("  ++ client frame failed the CRC check, never put on the bus")
+            return self.response(ERR_INPUT_INVALID_CRC)
+
+        self.served[idx] += 1
+        reply = self.pump(idx, frame)
+        if reply is None:
+            print("  ++ nothing on the bus answered")
+            return self.response(ERR_SERIAL_READ_TIMEOUT)
+
+        if CORRUPT_REPLY:
+            reply = bytearray(reply)
+            reply[len(reply) // 2] ^= 0x01
+            reply = bytes(reply)
+            print("  ++ corrupted one byte of the pump reply")
+        hexdump("  serial <--", reply)
+
+        if GATEWAY_CHECKS_CRC and ctrl & CTRL_CHK_CRC_DEVICE and not pump_crc_ok(reply):
+            print("  ++ pump reply failed the CRC check")
+            return self.response(ERR_SERIAL_OUTPUT_INVALID_CRC)
+        return self.response(NO_ERR, reply)
+
+    def pump(self, idx, frame):
+        """
+        """
+        addr, cmd, size = struct.unpack("<BBH", frame[:PUMP_HDR_LEN])
+        print(f"  pump frame  addr {addr}  cmd {cmd}  size {size}")
+        if idx != PUMP_COM - 1 or addr != PUMP_ADDR:
+            return None
+
+        # an odd frame length means odd data, since header and CRC are both even
+        if size != len(frame) or len(frame) % 2:
+            print(f"  ++ pump size field {size}, frame is {len(frame)} bytes")
+            return pump_frame(PUMP_ADDR, PUMP_SIZE_ERROR)
+        if not pump_crc_ok(frame):
+            print("  ++ pump saw a bad CRC")
+            return pump_frame(PUMP_ADDR, PUMP_BAD_CRC)
+
+        if cmd in REFUSE:
+            print(f"  ++ refusing pump command {cmd} with {REFUSE[cmd]}")
+            return pump_frame(PUMP_ADDR, REFUSE[cmd])
+
+        code, body = self.pump_reply(cmd, frame[PUMP_HDR_LEN:-PUMP_CRC_LEN])
+        return pump_frame(PUMP_ADDR, code, body)
+
+    def pump_reply(self, cmd, data):
+        """return code and reply data for one pump command"""
+        if cmd == PUMP_FIRMWAREINFO:
+            return PUMP_GOOD, struct.pack("<8H", *FIRMWARE_DEFAULTS)
+
+        if cmd in PUMP_REPLIES:
+            fmt, values = PUMP_REPLIES[cmd]
+            return PUMP_GOOD, struct.pack(fmt, *values)
+
+        if cmd == 33:   # GET_PROFILE_TRACE_INFO, data is the cycle
+            cycle = struct.unpack("<L", data)[0]
+            return PUMP_GOOD, struct.pack(PROFILE_INFO_FMT, cycle, *PROFILE_INFO_REST)
+
+        if cmd == 24:   # GET_ALARMS, data is start alarm number, count, reserved
+            start, count, _rsv = struct.unpack("<LHH", data)
+            body = b""
+            for alarm in ALARMS[:count]:
+                body += struct.pack(ALARM_FMT, *alarm)
+            return PUMP_GOOD, body
+
+        if cmd == 21:   # GET_SVIDS, data is a list of UINT16 numbers
+            body = b""
+            for (number,) in struct.iter_unpack("<H", data):
+                if number in REFUSE_SVIDS:
+                    print(f"  ++ refusing SVID {number} with {REFUSE_SVIDS[number]}")
+                    return REFUSE_SVIDS[number], b""
+                if number not in SVIDS:
+                    print(f"  ++ unknown SVID {number}")
+                    return PUMP_UNKNOWN_SVID, b""
+                code, value = SVIDS[number]
+                if code == "s":
+                    body += struct.pack("<H", len(value)) + value
+                else:
+                    body += struct.pack("<" + code, value)
+            return PUMP_GOOD, body
+
+        print(f"  ++ pump command {cmd} not emulated")
+        return PUMP_NOT_SUPPORTED, b""
 
     def handle(self, pkt):
         if len(pkt) < HDR_LEN:
@@ -133,9 +346,7 @@ class Mock:
             return self.query_interface(lserial)
 
         if cmd == SEND_PACKET:
-            # TODO: phase 1b, pretend nothing is on the bus for now
-            print("  ++ SEND_PACKET, no pump emulated yet")
-            return self.response(ERR_SERIAL_READ_TIMEOUT)
+            return self.send_packet(lserial, ctrl, body)
 
         # lock / unlock, the probe refuses to build these so we should never see them
         print(f"  ++ {CMD_NAMES[cmd]} should never be sent by our client")
@@ -152,6 +363,11 @@ def main():
     print(f"  logical_com1   {LOGICAL_COM1}")
     print(f"  iface width    {IFACE_WIDTH}")
     print(f"  close after    {CLOSE_AFTER_RESPONSE}")
+    print(f"  pump           address {PUMP_ADDR} on COM{PUMP_COM}")
+    print(f"  corrupt reply  {CORRUPT_REPLY}")
+    print(f"  gateway crc    {GATEWAY_CHECKS_CRC}")
+    print(f"  refuse         {REFUSE}")
+    print(f"  refuse svids   {REFUSE_SVIDS}")
     print()
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

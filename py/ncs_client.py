@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from ncs_protocol import (
     COUNT16_FORMAT,
     COUNT32_FORMAT,
+    CTRL_CHK_CRC_DEVICE,
+    CTRL_CHK_CRC_PACKET,
     INTERFACE_FIXED_FORMAT,
     INTERFACE_FIXED_LEN,
     MAX_INTERFACE_COUNT,
@@ -16,6 +18,7 @@ from ncs_protocol import (
     lserial,
     parse_response,
 )
+from pump_protocol import FRAME_CMD_OFFSET, MIN_FRAME_LEN, allowed_command
 from util import dump_bytes
 
 TIMEOUT_MS          = 5000
@@ -173,3 +176,17 @@ class NCSClient:
 
         enabled, baud, served = struct.unpack_from(INTERFACE_FIXED_FORMAT, body)
         return InterfaceInfo(enabled=enabled, baud=baud, served=served, tail=body[INTERFACE_FIXED_LEN:])
+
+    def send_packet(self, com, frame):
+        """
+        Send a complete pump frame out the serial bus on one COM port and return the gateway's response.
+        """
+        # checked again right before the wire, so a frame that didn't come from build_frame can't carry a write
+        if len(frame) < MIN_FRAME_LEN:
+            raise ValueError(f"pump frame is {len(frame)} bytes, shorter than the smallest frame")
+        allowed_command(frame[FRAME_CMD_OFFSET])
+
+        # the return code isn't checked here, for this command codes like a bad CRC or a pump timeout are
+        # the diagnosis the caller needs, not just a failure
+        ctrl =CTRL_CHK_CRC_PACKET | CTRL_CHK_CRC_DEVICE
+        return self.transact(Command.SEND_PACKET, lserial=lserial(com), ctrl=ctrl, data=frame, check_rc=False)
