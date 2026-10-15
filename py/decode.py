@@ -1,6 +1,6 @@
 """
-Test 4. Decode a directory saved by t3_profile_pull.py into a CSV shaped like the vendor's profile export. Reads
-only files, so it runs anywhere with no NCS and no pump.
+Decode a directory saved by test3.py into a CSV shaped like the vendor's profile export. Reads only files, so it
+runs anywhere with no NCS and no pump.
 """
 
 import json
@@ -10,9 +10,9 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from capture_format import INFO_FILE_NAME, WORD_LEN, trace_file_name
 from profile_decode import decode, to_signed
 from pump_structs import COMPRESSED_ENCODING, ENCODING_MASK, PROFILE_TRACE_NAMES
-from t3_profile_pull import INFO_FILE_NAME, WORD_LEN, trace_file_name
 
 MS_PER_SEC = 1000
 TIME_DECIMALS = 3
@@ -74,33 +74,34 @@ def decode_trace(directory, trace, info):
 
     path = os.path.join(directory, trace_file_name(trace))
     if not os.path.exists(path):
-        print(f"  NOT DECODED, {path} is missing")
+        print(f"  NOT DECODED, {path} missing")
         return None
     with open(path, "rb") as file:
         raw = file.read()
 
     if len(raw) % WORD_LEN != 0:
-        print(f"  NOT DECODED, the file is {len(raw)} bytes, not a whole number of words")
+        print(f"  NOT DECODED, {len(raw)} bytes, odd length")
         return None
     words = list(struct.unpack(f"<{len(raw) // WORD_LEN}H", raw))
-    if len(words) == expected_words:
-        print(f"  {len(words)} encoded words, as the profile info said")
-    else:
-        print(f"  {len(words)} encoded words, the profile info said {expected_words}")
+    if len(words) != expected_words:
+        print(f"  {len(words)} words, expected {expected_words}")
 
+    notes = []
     try:
-        samples = decode(words, expected_samples)
+        samples = decode(words, expected_samples, notes)
     except ValueError as error:
         print(f"  NOT DECODED, {error}")
         return None
+    finally:
+        # a reason to distrust one delta, not the whole trace, so the column is kept
+        for note in notes:
+            print(f"  WARNING: {note}")
 
     if len(samples) != expected_samples:
-        print(f"  NOT DECODED, {len(samples)} samples came out, expected {expected_samples}")
+        print(f"  NOT DECODED, {len(samples)} samples, expected {expected_samples}")
         return None
 
-    print(f"  {len(samples)} samples came out, matches the expected {expected_samples}")
-    print(f"  first {scaled_text(samples[0], column)}, last {scaled_text(samples[-1], column)}, "
-          f"{column.title}")
+    print(f"  OK, {scaled_text(samples[0], column)} ... {scaled_text(samples[-1], column)}")
     return samples
 
 
@@ -158,19 +159,17 @@ def write_csv(path, info, decoded):
 
 def main():
     if len(sys.argv) != 2:
-        print("usage: python t4_decode.py <directory saved by t3_profile_pull.py>")
+        print("usage: python decode.py <capture directory>")
         return 2
     directory = sys.argv[1]
 
-    print(f"Test 4, decode. Reading {directory}, no network involved.")
     with open(os.path.join(directory, INFO_FILE_NAME)) as file:
         info = json.load(file)
 
     encoding = info["type_encoding"] & ENCODING_MASK
-    print(f"  cycle {info['cycle']}, {info['unencoded_size']} samples per trace, encoding {encoding}")
+    print(f"  cycle {info['cycle']}, {info['unencoded_size']} samples, encoding {encoding}")
     if encoding != COMPRESSED_ENCODING:
-        print(f"\n * VERDICT\n\n  FAILED, the encoding is {encoding}, the decoder only knows {COMPRESSED_ENCODING}.")
-        print("  Nothing was decoded. The raw files are untouched.")
+        print(f"\n * VERDICT\n\n  FAILED, unknown encoding {encoding}")
         return 1
 
     decoded = []
@@ -182,13 +181,11 @@ def main():
 
     failed = [trace for trace in range(len(TRACE_COLUMNS)) if decoded[trace] is None]
     print("\n * VERDICT\n")
-    print(f"  wrote {path}")
+    print(f"  {path}")
     if failed:
-        print(f"  {len(failed)} of {len(TRACE_COLUMNS)} traces did not decode and are blank in the CSV: {failed}")
-        print("  Their raw files are untouched, so the decoder can be fixed and this run again.")
+        print(f"  FAILED, blank traces {failed}")
         return 1
-    print(f"  PASSED, all {len(TRACE_COLUMNS)} traces decoded to the expected number of samples.")
-    print("  Next, compare the CSV against the vendor's export of a profile from this pump.")
+    print("  PASSED")
     return 0
 
 

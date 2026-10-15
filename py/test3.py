@@ -1,6 +1,6 @@
 """
 Test 3. Pull every trace of the most recent dispense profile and save the raw bytes, one file per trace, without
-decoding anything. t4_decode.py turns the saved files into a CSV with no pump needed.
+decoding anything. decode.py turns the saved files into a CSV with no pump needed.
 """
 
 import json
@@ -9,6 +9,7 @@ import sys
 import time
 from dataclasses import asdict
 
+from capture_format import INFO_FILE_NAME, WORD_LEN, trace_file_name
 from ncs_client import NCSClient, NCSError
 from ncs_protocol import ReturnCode
 from pump_client import PumpClient, PumpTransportError
@@ -32,17 +33,10 @@ PUMP_ADDR = 2
 
 # each pull gets its own directory under this, named for the cycle and the time
 CAPTURE_ROOT = "captures"
-INFO_FILE_NAME = "profile_info.json"
 
 # smallest encoded size first, so the simplest traces are known good before the large pressure traces, which lean
 # hardest on the delta coding, are pulled
 TRACE_ORDER = [7, 9, 8, 5, 6, 2, 3, 4, 1, 0]
-
-WORD_LEN = 2
-
-
-def trace_file_name(trace):
-    return f"trace_{trace}.bin"
 
 
 def report_failure(what, error):
@@ -86,7 +80,7 @@ def read_profile_info(pump, cycle):
 
     info = ProfileTraceInfo.parse(raw)
     if not info.length_matches():
-        print(f"  LENGTH MISMATCH: received {len(raw)} bytes, ProfileTraceInfo layout is {info.length()}")
+        print(f"  LENGTH MISMATCH: {len(raw)} bytes, expected {info.length()}")
     print_rows(info.rows())
     return info, raw
 
@@ -109,12 +103,12 @@ def pull_trace(pump, cycle, trace, expected_words):
             break
 
         received_words = len(chunk) // WORD_LEN
-        print(f"  words {start} to {start + count - 1}: asked for {count}, received {received_words}")
+        print(f"  words {start} to {start + count - 1} received {received_words} of {count}")
         data += chunk
 
         # an empty answer would otherwise ask for the same words forever
         if received_words == 0:
-            print("  nothing came back, stopping this trace")
+            print("  empty reply, trace stopped")
             break
         start += received_words
 
@@ -122,7 +116,6 @@ def pull_trace(pump, cycle, trace, expected_words):
 
 
 def main():
-    print("Test 3, profile pull. GET_PROFILE_TRACE and status reads only, nothing is written to the pump.")
     print(f"NCS on {HOST}:{PORT}, pump address {PUMP_ADDR} on COM{PUMP_COM}")
 
     ncs = NCSClient(HOST, PORT)
@@ -131,7 +124,7 @@ def main():
         print(f"  version: {ncs.get_version()}")
     except NCSError as error:
         print(f"  GET_VERSION -> {type(error).__name__}: {error}")
-        print(f"\n  The NCS on {HOST}:{PORT} is not answering, giving up.")
+        print("\n  NCS not answering")
         return 1
 
     pump = PumpClient(ncs, PUMP_COM, PUMP_ADDR)
@@ -139,26 +132,25 @@ def main():
     # the pump keeps dispensing while this runs, so one cycle number is fixed here and used for every request
     cycle = read_profile_cycle(pump)
     if cycle is None:
-        print("\n  FAILED, neither status command gave a profile cycle, so there is nothing to ask for.")
+        print("\n  FAILED, no profile cycle")
         return 1
 
     info, info_raw = read_profile_info(pump, cycle)
     if info is None:
-        print(f"\n  FAILED, no profile info for cycle {cycle}.")
+        print(f"\n  FAILED, no profile info for cycle {cycle}")
         return 1
     if info.cycle != cycle:
-        print(f"\n  FAILED, asked about cycle {cycle} but the profile info is for cycle {info.cycle}.")
+        print(f"\n  FAILED, asked cycle {cycle}, got {info.cycle}")
         return 1
     if info.encoded_size is None or info.unencoded_size is None:
-        print("\n  FAILED, the profile info is too short to hold the trace sizes.")
+        print("\n  FAILED, profile info too short")
         return 1
 
     encoding = info.type_encoding & ENCODING_MASK
     profile_type = info.type_encoding >> PROFILE_TYPE_SHIFT
-    print(f"\n  encoding {encoding}, profile type {profile_type}, {info.unencoded_size} samples per trace")
+    print(f"\n  encoding {encoding}, type {profile_type}, {info.unencoded_size} samples")
     if encoding != COMPRESSED_ENCODING:
-        print(f"  ENCODING IS {encoding}, NOT THE COMPRESSION THE DECODER KNOWS. The raw bytes are still pulled,")
-        print("  but test 4 will not be able to decode them.")
+        print(f"  UNKNOWN ENCODING {encoding}")
 
     directory = os.path.join(CAPTURE_ROOT, f"profile_{cycle}_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(directory)
@@ -167,7 +159,6 @@ def main():
     saved_info["captured"] = f"{HOST}:{PORT} COM{PUMP_COM} pump {PUMP_ADDR} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
     with open(os.path.join(directory, INFO_FILE_NAME), "w") as file:
         json.dump(saved_info, file, indent=4)
-    print(f"  saved the profile info to {directory}")
 
     start_time = time.monotonic()
     total_bytes = 0
@@ -187,10 +178,9 @@ def main():
         total_round_trips += round_trips
         received_words = len(data) // WORD_LEN
         if received_words == expected_words:
-            print(f"  received {received_words} words, agrees with the encoded size. saved to {path}")
+            print(f"  OK, {received_words} words")
         else:
-            print(f"  received {received_words} words, DISAGREES with the encoded size of {expected_words}. "
-                  f"saved to {path}")
+            print(f"  MISMATCH, {received_words} words, expected {expected_words}")
             disagreements.append(trace)
     elapsed = time.monotonic() - start_time
 
@@ -198,23 +188,21 @@ def main():
     recheck, recheck_raw = read_profile_info(pump, cycle)
     unchanged = recheck_raw == info_raw
     if recheck is None:
-        print("\n  could not read the profile info again, so a change during the pull can't be ruled out")
+        print("\n  profile info re-read failed")
     elif not unchanged:
-        print("\n  THE PROFILE INFO CHANGED DURING THE PULL, the traces may not all belong to the same profile")
+        print("\n  PROFILE INFO CHANGED DURING PULL")
 
     print("\n * SUMMARY\n")
-    print(f"  cycle {cycle}, {len(TRACE_ORDER)} traces in {elapsed:.1f} seconds")
-    print(f"  {total_bytes} bytes in {total_round_trips} round trips")
-    print(f"  files in {directory}")
+    print(f"  cycle {cycle}, {elapsed:.1f}s, {total_bytes} bytes, {total_round_trips} round trips")
+    print(f"  {directory}")
 
     print("\n * VERDICT\n")
     if disagreements or not unchanged or encoding != COMPRESSED_ENCODING:
-        print("  NOT CLEAN. Whatever did arrive is saved. Send the whole directory back along with this output.")
+        print("  NOT CLEAN")
         if disagreements:
-            print(f"  traces with the wrong number of words: {disagreements}")
+            print(f"  wrong word count: {disagreements}")
         return 1
-    print("  PASSED, every trace arrived at its expected size and the profile didn't change during the pull.")
-    print(f"  Send the whole directory back. It is decoded offline with: python t4_decode.py {directory}")
+    print("  PASSED")
     return 0
 
 

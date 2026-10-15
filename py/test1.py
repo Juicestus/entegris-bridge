@@ -13,7 +13,6 @@ from ncs_protocol import COM_PORT_COUNT
 # the same box and pump the probe talks to, so the two can't drift apart
 HOST = pump_probe.HOST
 PORT = pump_probe.PORT
-PUMP_COM = pump_probe.PUMP_COM
 
 
 def read_served(ncs):
@@ -31,35 +30,30 @@ def read_served(ncs):
 
 
 def main():
-    print("Test 1, regression. The full pump probe, with the bus counters read on either side of it.")
     ncs = NCSClient(HOST, PORT)
 
-    print("\n * requests served, before\n")
+    print("\n * served, before\n")
     before = read_served(ncs)
     start = time.monotonic()
 
     probe_result = pump_probe.main()
 
     elapsed = time.monotonic() - start
-    print("\n * requests served, after\n")
+    print("\n * served, after\n")
     after = read_served(ncs)
 
-    print(f"\n * requests served over {elapsed:.1f} seconds\n")
+    print(f"\n * served over {elapsed:.1f}s\n")
     for com in range(1, COM_PORT_COUNT + 1):
         if before[com] is None or after[com] is None:
             print(f"  COM{com}  not read")
             continue
-        note = ""
-        if com == PUMP_COM:
-            note = "  includes every command the probe sent"
-        print(f"  COM{com}  {before[com]:10d} -> {after[com]:10d}  served {after[com] - before[com]:6d}{note}")
+        print(f"  COM{com}  {before[com]:10d} -> {after[com]:10d}  served {after[com] - before[com]:6d}")
 
     print("\n * VERDICT\n")
     if probe_result != 0:
-        print("  FAILED, the probe could not reach the NCS. Check the network before going further.")
+        print("  FAILED, NCS not answering")
         return 1
-    print("  The probe ran to the end. Read its summary above: every struct should decode with no length")
-    print("  mismatch and a ProfileCycle should have come back. If so, run t2_fixes.py next.")
+    print("  DONE")
     return 0
 
 

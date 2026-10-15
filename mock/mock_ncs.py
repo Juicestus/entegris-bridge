@@ -31,6 +31,11 @@ REFUSE = {}                 # pump command -> pump return code, e.g. {155: 32} m
 REFUSE_SVIDS = {}           # SVID number -> pump return code, any GET_SVIDS asking for one is refused with it
 GATEWAY_COPIES_PUMP_ERROR = True  # a pump error code also goes in the gateway header, as the real box does
 
+# made up, nothing here is known about a real pump. other cycles get a bounds error
+PROFILE_RETENTION = 20      # live cycles held, counting back from the newest
+REFERENCE_CYCLE = 118500    # cycle a stored reference profile reports, None for no reference
+REFERENCE_ALIAS = 0xFFFFFFFF  # asking for this cycle also gets the reference, None for no alias
+
 # ---------------------------------------------------------------------------
 
 HDR_LEN = 18
@@ -76,10 +81,13 @@ FIRMWARE_DEFAULTS = (1234, 0, 1011, 0, 1536, 0, 0, 0)
 PUMP_UNKNOWN_SVID = 13
 
 
+# the newest profile cycle, reported as ProfileCycle by status and SVID 1058
+LIVE_PROFILE_CYCLE = 119998
+
 # Status .. OfflineState, shared by RTSTATUS and CS_RTSTATUS
 RT_COMMON_FMT = "hHLHHHHLLLHHHHHHLLLLLhhH"
 RT_COMMON = (3, 0x0011, 120000, 7, 1500, 98, 0, 450000, 120010, 45020,
-             0, 1, 2, 5, 8, 0, 812, 4500, 4400, 800, 119998, 8250, -1150, 0)
+             0, 1, 2, 5, 8, 0, 812, 4500, 4400, 800, LIVE_PROFILE_CYCLE, 8250, -1150, 0)
 
 PUMP_REPLIES = {
     # VOLUMECOUNTERS
@@ -123,8 +131,8 @@ DISPENSE_INFO = (7, 0, 120000, 119000, 1760000100, b"LOT-A1", 4, 0, 1200, 1190)
 #   ("run", value, count)       count copies of value
 #   ("delta", first, deltas)    first, then each sample is the last minus a delta
 #   ("raw", values)             values as they are
-# only the last block of a trace may have a delta count that isn't a multiple
-# of three, since the decoder's length limit is what cuts off the padding
+# a delta count that isn't a multiple of three is padded out with zero deltas,
+# and the decoder has to stop at the count rather than at the padding
 # ---------------------------------------------------------------------------
 
 PROFILE_SAMPLES = 2144
@@ -147,8 +155,8 @@ PROFILE_BLOCKS = [
     # 2 dispense position, empties then refills
     [("run", 669, 400), ("delta", 669, [2] * 318), ("run", 33, 500), ("delta", 33, [-1] * 636),
      ("run", 669, 288)],
-    # 3 fill position
-    [("run", 0, 1000), ("delta", 0, [-1] * 669), ("run", 669, 474)],
+    # 3 fill position, a delta count that isn't a multiple of three in the middle of the trace
+    [("run", 0, 1000), ("delta", 0, [-1] * 670), ("run", 670, 473)],
     # 4 dispense current, signed
     [("run", 0, 400), ("raw", noise(100, 150, 321)), ("run", 0, 1423)],
     # 5 system status
@@ -185,13 +193,12 @@ def blocks_to_samples(blocks):
 def blocks_to_words(blocks):
     """the encoded words for a list of blocks"""
     words = []
-    for number, block in enumerate(blocks):
+    for block in blocks:
         if block[0] == "run":
             words += [0x10000 - block[2], block[1] & 0xFFFF]
         elif block[0] == "delta":
             deltas = block[2]
             assert all(-16 <= d <= 15 for d in deltas)
-            assert len(deltas) % 3 == 0 or number == len(blocks) - 1
             words += [0x4000 + len(deltas), block[1] & 0xFFFF]
             padded = deltas + [0] * (-len(deltas) % 3)
             for i in range(0, len(padded), 3):
@@ -213,6 +220,21 @@ PROFILE_INFO_FMT = "<LHHLLLLLLL10L"
 PROFILE_INFO_REST = (0x0101, 5, 1776666114, PROFILE_START, 721, 1576, 1943, 1922, PROFILE_SAMPLES,
                      *[len(words) for words in PROFILE_WORDS])
 
+# the stored reference, profile type 2 instead of 1. same traces as the live one except flow, which is a steady
+# value rather than zero, so a pull of the reference can be told apart from a pull of a live cycle
+REFERENCE_WORDS = PROFILE_WORDS[:7] + [[0x10000 - PROFILE_SAMPLES, 250]] + PROFILE_WORDS[8:]
+REFERENCE_INFO_REST = (0x0201, 5, 1775000000, PROFILE_START, 721, 1576, 1943, 1922, PROFILE_SAMPLES,
+                       *[len(words) for words in REFERENCE_WORDS])
+
+
+def held_profile(cycle):
+    """cycle the reply reports, info after the cycle, and trace words, or None if the pump doesn't hold it"""
+    if REFERENCE_CYCLE is not None and cycle in (REFERENCE_CYCLE, REFERENCE_ALIAS):
+        return REFERENCE_CYCLE, REFERENCE_INFO_REST, REFERENCE_WORDS
+    if LIVE_PROFILE_CYCLE - PROFILE_RETENTION < cycle <= LIVE_PROFILE_CYCLE:
+        return cycle, PROFILE_INFO_REST, PROFILE_WORDS
+    return None
+
 # Size in words, RecordType, CycleNum, TimeStamp, RecordNumber, AlarmNumber, Code, AlarmSeverity, Data.
 # newest first. only two stored, so asking for more gets a short list, like a real pump that gives up early
 ALARM_FMT = "<HHLLLLHHL"
@@ -225,7 +247,7 @@ ALARMS = [
 # are kept an even length so the reply stays a whole number of words
 SVIDS = {
     769: ("H", 1234), 771: ("H", 1011), 773: ("H", 1536),
-    257: ("h", 3), 796: ("H", 1500), 1056: ("L", 120000), 1058: ("L", 119998),
+    257: ("h", 3), 796: ("H", 1500), 1056: ("L", 120000), 1058: ("L", LIVE_PROFILE_CYCLE),
     1048: ("L", 812), 1025: ("L", 1760000400),
     269: ("h", 1225), 270: ("h", 350), 287: ("h", 8250), 288: ("h", -1150),
     298: ("h", 2350), 299: ("h", 2410),
@@ -381,11 +403,15 @@ class Mock:
 
         if cmd == 32:   # GET_PROFILE_TRACE, data is cycle, trace, word count, first word
             cycle, trace, count, start = struct.unpack("<LHHL", data)
+            held = held_profile(cycle)
+            if held is None:
+                print(f"  ++ no profile held for cycle {cycle}")
+                return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 0)
             if trace >= len(PROFILE_WORDS):
                 return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 1)
             if count > PROFILE_MAX_WORDS:
                 return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 2)
-            words = PROFILE_WORDS[trace][start:start + count]
+            words = held[2][trace][start:start + count]
             print(f"  ++ cycle {cycle} trace {trace} words {start} to {start + count - 1}, sending {len(words)}")
             return PUMP_GOOD, struct.pack(f"<{len(words)}H", *words)
 
@@ -395,7 +421,11 @@ class Mock:
 
         if cmd == 33:   # GET_PROFILE_TRACE_INFO, data is the cycle
             cycle = struct.unpack("<L", data)[0]
-            return PUMP_GOOD, struct.pack(PROFILE_INFO_FMT, cycle, *PROFILE_INFO_REST)
+            held = held_profile(cycle)
+            if held is None:
+                print(f"  ++ no profile held for cycle {cycle}")
+                return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 0)
+            return PUMP_GOOD, struct.pack(PROFILE_INFO_FMT, held[0], *held[1])
 
         if cmd == 24:   # GET_ALARMS, data is start alarm number, count, reserved
             start, count, _rsv = struct.unpack("<LHH", data)
@@ -487,6 +517,8 @@ def main():
     print(f"  refuse svids   {REFUSE_SVIDS}")
     print(f"  copy pump err  {GATEWAY_COPIES_PUMP_ERROR}")
     print(f"  profile words  {[len(words) for words in PROFILE_WORDS]}")
+    print(f"  live cycle     {LIVE_PROFILE_CYCLE}, {PROFILE_RETENTION} held")
+    print(f"  reference      {REFERENCE_CYCLE}, alias {REFERENCE_ALIAS}")
     print()
 
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

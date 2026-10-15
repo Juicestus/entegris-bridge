@@ -85,14 +85,14 @@ class Step:
         One line saying how this command went.
         """
         if self.gateway_rc is not None:
-            return f"failed at the gateway, return code {code_name(self.gateway_rc)}"
+            return f"gateway {code_name(self.gateway_rc)}"
         if self.rc is None:
-            return f"failed, {self.error}"
+            return self.error
         if self.rc != PumpReturnCode.GOOD:
-            return f"refused, pump return code {code_name(self.rc)}"
+            return code_name(self.rc)
         if self.error is not None:
-            return f"answered GOOD but {self.error}"
-        return "answered GOOD"
+            return f"GOOD, {self.error}"
+        return "GOOD"
 
 
 def code_name(rc):
@@ -124,7 +124,7 @@ def send(pump, steps, cmd, data=b"", name=None):
         reply = pump.command(cmd, data)
     except PumpTransportError as error:
         step.gateway_rc = error.gateway_rc
-        print(f"  gateway return code {code_name(error.gateway_rc)}")
+        print(f"  gateway returned {code_name(error.gateway_rc)}")
         if error.gateway_rc == ReturnCode.SERIAL_READ_TIMEOUT:
             time.sleep(TIMEOUT_RECOVERY_SEC)
         return None, step
@@ -135,7 +135,7 @@ def send(pump, steps, cmd, data=b"", name=None):
         return None, step
 
     step.rc = reply.rc
-    print(f"  pump return code {code_name(reply.rc)}")
+    print(f"  pump returned {code_name(reply.rc)}")
     dump_bytes("  data", reply.data)
     return reply, step
 
@@ -151,7 +151,7 @@ def show_struct(step, struct_class, data):
     try:
         decoded = struct_class.parse(data)
         if not decoded.length_matches():
-            step.mismatch = f"received {len(data)} bytes, {struct_class.__name__} layout is {struct_class.length()}"
+            step.mismatch = f"{len(data)} bytes, expected {struct_class.length()}"
             print(f"  LENGTH MISMATCH: {step.mismatch}")
         print_rows(decoded.rows())
         return decoded
@@ -194,7 +194,7 @@ def show_svids(step, data, numbers):
         label = f"{item.number} {item.svid.name}"
         print(f"  {label + ':':<{LABEL_WIDTH}} {format_value(item.value, item.svid.unit)}")
     if leftover:
-        step.mismatch = f"{leftover} bytes left over after the last value, a registered type is probably wrong"
+        step.mismatch = f"{leftover} bytes left over"
         print(f"  LEFTOVER: {step.mismatch}")
         return False
     return True
@@ -208,20 +208,20 @@ def run_svids(pump, steps):
                        "GET_SVIDS, safe list")
     if answered(reply):
         if show_svids(step, reply.data, SVID_SAFE_LIST):
-            ordinary = f"SVIDs work, all {len(SVID_SAFE_LIST)} ordinary values came back"
+            ordinary = "safe list GOOD"
         else:
-            ordinary = f"safe list answered GOOD but did not walk cleanly, {step.mismatch or step.error}"
+            ordinary = f"safe list GOOD, {step.mismatch or step.error}"
     elif reply is None:
         ordinary = f"safe list {step.outcome()}"
     else:
-        safe_refusal = code_name(reply.rc)
+        safe_refusal = step.outcome()
         reply, step = send(pump, steps, PumpCommand.GET_SVIDS, svid.build_request(SVID_SHORT_LIST),
                            "GET_SVIDS, firmware values only")
         if answered(reply):
             show_svids(step, reply.data, SVID_SHORT_LIST)
-            ordinary = f"safe list refused with {safe_refusal} but a shorter list worked, maybe a list length limit"
+            ordinary = f"safe list {safe_refusal}, short list GOOD"
         else:
-            ordinary = f"safe list refused with {safe_refusal}, short list {step.outcome()}"
+            ordinary = f"safe list {safe_refusal}, short list {step.outcome()}"
 
     # always asked, whatever happened above. the safe list doesn't contain these, and whether they get past the
     # password is a separate question from whether SVIDs work at all
@@ -229,37 +229,26 @@ def run_svids(pump, steps):
                        "GET_SVIDS, password pair")
     if answered(reply):
         if show_svids(step, reply.data, SVID_PASSWORD_PAIR):
-            pair = "the password pair worked, so SVIDs reach fields whose own command needs a password"
+            pair = "pair GOOD"
         else:
-            pair = f"the password pair answered GOOD but did not walk cleanly, {step.mismatch or step.error}"
-    elif reply is not None and reply.rc == PumpReturnCode.BAD_PASSWORD:
-        pair = f"the password pair was refused with {code_name(reply.rc)}, SVIDs do not get past the password"
+            pair = f"pair GOOD, {step.mismatch or step.error}"
     else:
-        pair = f"the password pair {step.outcome()}"
+        pair = f"pair {step.outcome()}"
 
     return f"{ordinary}; {pair}"
 
 
 def run_dispense_info(pump, steps):
     """
-    Send DISPENSE_INFO, whose return code tells us whether passwords are enabled. Returns the summary answer.
+    Send DISPENSE_INFO for the most recent dispense. Returns the summary answer.
     """
     reply, step = send(pump, steps, PumpCommand.DISPENSE_INFO, dispense_info_request(MOST_RECENT_DISPENSE))
-    if reply is None:
-        answer = step.outcome()
-    elif reply.rc == PumpReturnCode.BAD_PASSWORD:
-        answer = "refused with BAD_PASSWORD, passwords ARE enabled on this pump"
-    elif reply.rc == PumpReturnCode.GOOD:
-        answer = "answered GOOD, no password was needed"
+    if answered(reply):
         if len(reply.data) != DISPENSE_INFO_LEN:
-            step.mismatch = f"received {len(reply.data)} bytes, expected {DISPENSE_INFO_LEN}"
+            step.mismatch = f"{len(reply.data)} bytes, expected {DISPENSE_INFO_LEN}"
             print(f"  LENGTH MISMATCH: {step.mismatch}")
-        print("  only the first fields are known, the rest is in the raw bytes above")
         print_rows(dispense_info_known_rows(reply.data))
-    else:
-        answer = f"refused with {code_name(reply.rc)}"
-    print(f"\n  >>> DISPENSE_INFO {answer}")
-    return answer
+    return step.outcome()
 
 
 def run_profile_info(pump, steps, cycle):
@@ -275,10 +264,10 @@ def run_profile_info(pump, steps, cycle):
     if info is None:
         return step.outcome()
     if info.unencoded_size is None:
-        return "answered GOOD but the reply is too short to hold the profile size"
+        return "GOOD, too short"
     if info.unencoded_size == 0:
-        return f"no profile for cycle {cycle}, the reply says its size is zero"
-    return f"present for cycle {info.cycle}, {info.unencoded_size} bytes unencoded, encoded sizes {info.encoded_size}"
+        return f"cycle {cycle} empty"
+    return f"cycle {info.cycle}, {info.unencoded_size} samples, encoded {info.encoded_size}"
 
 
 def run_alarms(pump, steps):
@@ -301,12 +290,12 @@ def run_alarms(pump, steps):
         return step.outcome()
 
     if leftover:
-        step.mismatch = f"{leftover} bytes left over after the last whole alarm record"
+        step.mismatch = f"{leftover} bytes left over"
         print(f"  LEFTOVER: {step.mismatch}")
 
     if not records:
-        return "answered GOOD but no alarm records came back"
-    return f"{len(records)} alarm record(s) came back, the newest is alarm number {records[0].alarm_number}"
+        return "GOOD, no records"
+    return f"{len(records)} records, newest alarm {records[0].alarm_number}"
 
 
 def print_summary(steps, answers):
@@ -314,7 +303,7 @@ def print_summary(steps, answers):
     others = []
     mismatches = []
     for step in steps:
-        if step.outcome() == "answered GOOD":
+        if step.outcome() == "GOOD":
             good.append(step)
         else:
             others.append(step)
@@ -322,7 +311,7 @@ def print_summary(steps, answers):
             mismatches.append(step)
 
     print("\n\n * SUMMARY\n")
-    print(f"  {len(good)} of {len(steps)} commands answered GOOD")
+    print(f"  {len(good)} of {len(steps)} GOOD")
     for step in others:
         print(f"  {step.name}: {step.outcome()}")
     for step in mismatches:
@@ -333,8 +322,6 @@ def print_summary(steps, answers):
 
 
 def main():
-    print("Pump probe. This only reads. No write, control, reset or self test command can be sent, because the")
-    print("allowlist does not contain any.")
     print(f"NCS on {HOST}:{PORT}, pump address {PUMP_ADDR} on COM{PUMP_COM}")
 
     ncs = NCSClient(HOST, PORT)
@@ -345,7 +332,7 @@ def main():
         print(f"  version: {ncs.get_version()}")
     except NCSError as error:
         print(f"  GET_VERSION -> {type(error).__name__}: {error}")
-        print(f"\n  The NCS on {HOST}:{PORT} is not answering, giving up.")
+        print("\n  NCS not answering")
         return 1
 
     pump = PumpClient(ncs, PUMP_COM, PUMP_ADDR)
@@ -378,9 +365,8 @@ def main():
     reply, step = send(pump, steps, PumpCommand.UTILITY_STATUS)
     if answered(reply):
         if len(reply.data) != UTILITY_STATUS_LEN:
-            step.mismatch = f"received {len(reply.data)} bytes, expected {UTILITY_STATUS_LEN}"
+            step.mismatch = f"{len(reply.data)} bytes, expected {UTILITY_STATUS_LEN}"
             print(f"  LENGTH MISMATCH: {step.mismatch}")
-        print("  only the first fields are known, the rest is in the raw bytes above")
         try:
             print_rows(utility_status_known_rows(reply.data))
         except Exception as error:
@@ -406,7 +392,7 @@ def main():
     send(pump, steps, PumpCommand.DC_STATUS)
     if profile_cycle is None:
         profile_answer = run_profile_info(pump, steps, FALLBACK_PROFILE_CYCLE)
-        profile_answer = f"never learned a cycle number, so this is not a finding about the profile. {profile_answer}"
+        profile_answer = f"no cycle learned, {profile_answer}"
     else:
         profile_answer = run_profile_info(pump, steps, profile_cycle)
     alarm_answer = run_alarms(pump, steps)

@@ -16,6 +16,7 @@ DELTAS_PER_WORD = 3
 DELTA_BITS = 5
 DELTA_SHIFT = 10
 DELTA_WORD_MASK = 0x7FFF
+DELTA_UNUSED_BIT = 0x8000
 DELTA_MAX = 15
 DELTA_RANGE = 32
 
@@ -38,12 +39,13 @@ def next_word(encoded, pos):
     return encoded[pos]
 
 
-def decode(encoded, max_samples):
+def decode(encoded, max_samples, notes=None):
     """
-    Expand a list of encoded words into at most max_samples unsigned samples.
+    Expand a list of encoded words into at most max_samples unsigned samples, adding any warnings to notes.
     """
     samples = []
     pos = 0
+    unused_bit_noted = False
 
     while pos < len(encoded):
         lead = encoded[pos]
@@ -71,8 +73,18 @@ def decode(encoded, max_samples):
             while count > 0:
                 packed = next_word(encoded, pos)
                 pos += 1
+
+                # decoded the same way the reference would, but said out loud. once is enough to know to look
+                if notes is not None and packed & DELTA_UNUSED_BIT and not unused_bit_noted:
+                    notes.append(f"a packed delta word had its unused top bit set, after {len(samples)} samples")
+                    unused_bit_noted = True
+
+                # the reference emits a whole word of deltas whatever the count says. that only survives at the end
+                # of a trace, where the sample limit cuts off the padding. the count is honored here so a block in
+                # the middle of a trace doesn't shift every sample after it
+                taken = min(DELTAS_PER_WORD, count)
                 count -= DELTAS_PER_WORD
-                for _ in range(DELTAS_PER_WORD):
+                for _ in range(taken):
                     # the deltas sit under the top bit, which should always be clear. the reference doesn't mask it
                     # off before the first shift and neither does this, so a set top bit decodes the same as in C
                     delta = packed >> DELTA_SHIFT
@@ -83,8 +95,7 @@ def decode(encoded, max_samples):
                     # C truncates to sixteen bits on its own, Python has to be told
                     value = (value - delta) & WORD_MASK
 
-                    # the count isn't always a whole number of words, so the last word of a block can hold more
-                    # deltas than there are samples left. this is what stops it
+                    # stop rather than run away, same as the other blocks
                     if len(samples) >= max_samples:
                         break
                     samples.append(value)
