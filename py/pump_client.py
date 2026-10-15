@@ -15,6 +15,7 @@ from pump_structs import (
     alarm_request,
     parse_alarms,
     profile_info_request,
+    profile_trace_request,
 )
 
 
@@ -64,13 +65,14 @@ class PumpClient:
         frame = build_frame(self.addr, cmd, data)
         response = self.ncs.send_packet(self.com, frame)
 
-        # if the gateway reports a problem the body is not a pump reply, so there is nothing to parse
-        if response.rc != ReturnCode.NO_ERR:
-            raise PumpTransportError(cmd, response.rc)
-
+        # when the pump answers with an error the gateway copies that code into its own header, so a nonzero
+        # gateway code can still come with a complete pump reply. only a body that doesn't parse means the frame
+        # never made it there and back
         try:
             return parse_frame(response.body, self.addr)
         except ValueError as error:
+            if response.rc != ReturnCode.NO_ERR:
+                raise PumpTransportError(cmd, response.rc) from error
             raise PumpProtocolError(f"{PumpCommand(cmd).name} reply did not parse: {error}") from error
 
     def get_firmware_info(self):
@@ -160,6 +162,12 @@ class PumpClient:
         Ask the pump about the profile recorded for one dispense cycle.
         """
         return self.read_struct(PumpCommand.GET_PROFILE_TRACE_INFO, ProfileTraceInfo, profile_info_request(cycle))
+
+    def get_profile_trace(self, cycle, trace, start, count):
+        """
+        Ask the pump for count words of one encoded profile trace, starting at word start.
+        """
+        return self.read_data(PumpCommand.GET_PROFILE_TRACE, profile_trace_request(cycle, trace, start, count))
 
     def get_alarms(self, start, count):
         """

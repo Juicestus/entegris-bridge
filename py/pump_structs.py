@@ -403,15 +403,72 @@ def utility_status_known_rows(data):
     return rows
 
 
-# DISPENSE_INFO needs ENGINEER access and is only partly known, so it is printed raw. these are the fields at
-# its start that we do know, as offset, type and name, kept for writing its dataclass once real bytes are in.
+# DISPENSE_INFO is only partly known, so it is printed raw. these are the fields at its start that we do know,
+# as offset, struct code, name and unit. the gaps between them are unknown, so each one is read at its own offset.
 # DC_STATUS has no known layout or size at all.
+DISPENSE_INFO_LEN = 164
 DISPENSE_INFO_KNOWN = [
-    (0, "UINT16", "RecipeNum"),
-    (4, "ULONG", "Cycle"),
-    (8, "ULONG", "ReferenceCycle"),
-    (12, "ULONG", "Time"),
-    (16, "STRING[24]", "JobInfo"),
-    (40, "UINT16", "SlotID"),
-    (44, "INT16", "ReadyPressure"),
+    (0, "H", "RecipeNum", None),
+    (4, "L", "Cycle", None),
+    (8, "L", "ReferenceCycle", None),
+    (12, "L", "Time", EPOCH),
+    (16, "24s", "JobInfo", None),
+    (40, "H", "SlotID", None),
+    (44, "h", "ReadyPressure", CPSI),
+    (46, "h", "ReferenceReadyPressure", CPSI),
 ]
+
+# the recipe number to ask about. without it the pump answers with a bounds error
+DISPENSE_INFO_REQUEST_FORMAT = ENDIAN + "H"
+MOST_RECENT_DISPENSE = 0
+
+
+def dispense_info_request(recipe):
+    """
+    Send data for DISPENSE_INFO, a recipe of MOST_RECENT_DISPENSE means the last dispense whatever its recipe.
+    """
+    return struct.pack(DISPENSE_INFO_REQUEST_FORMAT, recipe)
+
+
+def dispense_info_known_rows(data):
+    """
+    Label, value and unit for the fields of DISPENSE_INFO that we know.
+    """
+    rows = []
+    for offset, code, label, unit in DISPENSE_INFO_KNOWN:
+        value = unpack_field(code, data, offset)[0]
+        rows.append((label, value, unit))
+    return rows
+
+
+# cycle, trace number, how many words, first word
+PROFILE_TRACE_REQUEST_FORMAT = ENDIAN + "LHHL"
+MAX_TRACE_WORDS = 500
+
+# Type_Encoding in the profile info holds the encoding in its low byte and the profile type above it
+ENCODING_MASK = 0xFF
+PROFILE_TYPE_SHIFT = 8
+COMPRESSED_ENCODING = 1
+
+# in trace number order, which is also the order of EncodedSize in the profile info
+PROFILE_TRACE_NAMES = [
+    "Dispense Pressure",
+    "Fill Pressure",
+    "Dispense Position",
+    "Fill Position",
+    "Dispense Current",
+    "System Status",
+    "Valves Values",
+    "Flow Sensor",
+    "N2 Supply",
+    "Vacuum Supply",
+]
+
+
+def profile_trace_request(cycle, trace, start, count):
+    """
+    Send data for GET_PROFILE_TRACE, asking for count words of one trace from word start.
+    """
+    if not 1 <= count <= MAX_TRACE_WORDS:
+        raise ValueError(f"trace word count {count} is outside 1 to {MAX_TRACE_WORDS}")
+    return struct.pack(PROFILE_TRACE_REQUEST_FORMAT, cycle, trace, count, start)

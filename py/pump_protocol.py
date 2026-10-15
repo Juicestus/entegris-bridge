@@ -58,6 +58,7 @@ class PumpReturnCode(IntEnum):
     SIZE_ERROR = 1
     BAD_CRC = 3
     BUSY = 6
+    BOUNDS_ERROR = 10       # data carries the error code and which request field was out of bounds
     SVID_LIST_TOO_LARGE = 12
     UNKNOWN_SVID = 13
     BAD_PASSWORD = 32

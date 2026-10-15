@@ -1,6 +1,7 @@
 """
-Send every read command we have to one pump and print the raw bytes of each reply, so a wrong layout can be
-fixed offline without going back to the fab
+Test connection to a pump and poll a number of SVIDs. 
+
+Thise phase was successful... output from testing in docs/pump_probe.out
 """
 
 import sys
@@ -15,7 +16,9 @@ from pump_client import PumpClient, PumpTransportError
 from pump_protocol import PRODUCT_QUALIFIER, FirmwareInfo, PumpCommand, PumpReturnCode
 from pump_structs import (
     ALARM_SEVERITY,
+    DISPENSE_INFO_LEN,
     MOST_RECENT_ALARM,
+    MOST_RECENT_DISPENSE,
     UTILITY_STATUS_LEN,
     CsRtStatus,
     CycleCounters,
@@ -28,6 +31,8 @@ from pump_structs import (
     Version,
     VolumeCounters,
     alarm_request,
+    dispense_info_known_rows,
+    dispense_info_request,
     parse_alarms,
     profile_info_request,
     utility_status_known_rows,
@@ -239,13 +244,18 @@ def run_dispense_info(pump, steps):
     """
     Send DISPENSE_INFO, whose return code tells us whether passwords are enabled. Returns the summary answer.
     """
-    reply, step = send(pump, steps, PumpCommand.DISPENSE_INFO)
+    reply, step = send(pump, steps, PumpCommand.DISPENSE_INFO, dispense_info_request(MOST_RECENT_DISPENSE))
     if reply is None:
         answer = step.outcome()
     elif reply.rc == PumpReturnCode.BAD_PASSWORD:
         answer = "refused with BAD_PASSWORD, passwords ARE enabled on this pump"
     elif reply.rc == PumpReturnCode.GOOD:
         answer = "answered GOOD, no password was needed"
+        if len(reply.data) != DISPENSE_INFO_LEN:
+            step.mismatch = f"received {len(reply.data)} bytes, expected {DISPENSE_INFO_LEN}"
+            print(f"  LENGTH MISMATCH: {step.mismatch}")
+        print("  only the first fields are known, the rest is in the raw bytes above")
+        print_rows(dispense_info_known_rows(reply.data))
     else:
         answer = f"refused with {code_name(reply.rc)}"
     print(f"\n  >>> DISPENSE_INFO {answer}")
