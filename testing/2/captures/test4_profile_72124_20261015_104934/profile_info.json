@@ -1,0 +1,28 @@
+{
+    "received_len": 76,
+    "cycle": 72124,
+    "type_encoding": 257,
+    "sample_interval": 5,
+    "time": 1792079072,
+    "start_cycle": 400,
+    "dispense_end": 721,
+    "end_filtration": 1577,
+    "end_cycle": 1943,
+    "fill_end": 1923,
+    "unencoded_size": 2144,
+    "encoded_size": [
+        834,
+        865,
+        476,
+        436,
+        553,
+        50,
+        25,
+        2,
+        26,
+        36
+    ],
+    "raw_hex": "bc19010001010500e0f4d06a90010000d1020000290600009707000083070000600800004203000061030000dc010000b4010000290200003200000019000000020000001a00000024000000",
+    "asked_cycle": 72124,
+    "captured": "10.25.85.52:8888 COM8 pump 2 at 2026-10-15 10:49:34"
+}
