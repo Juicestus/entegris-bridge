@@ -176,7 +176,7 @@ def main():
     for trace in range(len(TRACE_COLUMNS)):
         decoded.append(decode_trace(directory, trace, info))
 
-    path = os.path.join(directory, f"profile_{info['cycle']}.csv")
+    path = os.path.join(directory, f"decoded_{info['cycle']}.csv")
     write_csv(path, info, decoded)
 
     failed = [trace for trace in range(len(TRACE_COLUMNS)) if decoded[trace] is None]

@@ -9,10 +9,10 @@ import sys
 import time
 from dataclasses import asdict
 
-from capture_format import INFO_FILE_NAME, WORD_LEN, trace_file_name
+from capture_format import INFO_FILE_NAME, WORD_LEN, bad_file_name, trace_file_name
 from ncs_client import NCSClient, NCSError
 from ncs_protocol import ReturnCode
-from pump_client import PumpClient, PumpTransportError
+from pump_client import PumpClient, PumpProtocolError, PumpTransportError
 from pump_probe import COMMAND_GAP_SEC, TIMEOUT_RECOVERY_SEC, code_name, print_rows
 from pump_protocol import PumpCommand
 from pump_structs import (
@@ -37,6 +37,11 @@ CAPTURE_ROOT = "captures"
 # smallest encoded size first, so the simplest traces are known good before the large pressure traces, which lean
 # hardest on the delta coding, are pulled
 TRACE_ORDER = [7, 9, 8, 5, 6, 2, 3, 4, 1, 0]
+
+# the bus flips the odd bit, so a damaged or lost reply is asked for again. a request the gateway itself rejected
+# as a bad CRC is our own bug and isn't, sending it again would only fail the same way
+RETRY_GATEWAY_CODES = [ReturnCode.SERIAL_OUTPUT_INVALID_CRC, ReturnCode.SERIAL_READ_TIMEOUT]
+MAX_RETRIES = 2
 
 
 def report_failure(what, error):
@@ -85,21 +90,48 @@ def read_profile_info(pump, cycle):
     return info, raw
 
 
-def pull_trace(pump, cycle, trace, expected_words):
+def should_retry(error):
+    return isinstance(error, PumpTransportError) and error.gateway_rc in RETRY_GATEWAY_CODES
+
+
+def request_chunk(pump, cycle, trace, start, count):
     """
-    All the words of one trace, a chunk at a time. Returns the bytes received and how many requests it took.
+    One chunk of a trace, retried when the bus lost or damaged it. Returns the bytes, or None and the last error,
+    and how many requests it took.
+    """
+    attempts = 0
+    while True:
+        attempts += 1
+        time.sleep(COMMAND_GAP_SEC)
+        try:
+            return pump.get_profile_trace(cycle, trace, start, count), None, attempts
+        except Exception as error:
+            report_failure(f"words {start} to {start + count - 1}, attempt {attempts}", error)
+            if attempts > MAX_RETRIES or not should_retry(error):
+                return None, error, attempts
+
+
+def pull_trace(pump, cycle, trace, expected_words, directory):
+    """
+    All the words of one trace, a chunk at a time. Returns the bytes received and a record of every chunk.
     """
     data = b""
-    round_trips = 0
+    chunks = []
     start = 0
     while start < expected_words:
         count = min(MAX_TRACE_WORDS, expected_words - start)
-        time.sleep(COMMAND_GAP_SEC)
-        round_trips += 1
-        try:
-            chunk = pump.get_profile_trace(cycle, trace, start, count)
-        except Exception as error:
-            report_failure(f"words {start} to {start + count - 1}", error)
+        chunk, error, attempts = request_chunk(pump, cycle, trace, start, count)
+        record = {"start": start, "count": count, "attempts": attempts, "failed": False, "bad_file": None}
+        chunks.append(record)
+
+        if chunk is None:
+            # kept apart from the trace so nothing downstream takes it for checked data
+            if isinstance(error, (PumpTransportError, PumpProtocolError)) and error.body:
+                record["bad_file"] = bad_file_name(trace, start)
+                with open(os.path.join(directory, record["bad_file"]), "wb") as file:
+                    file.write(error.body)
+                print(f"  {len(error.body)} bytes kept in {record['bad_file']}")
+            record["failed"] = True
             break
 
         received_words = len(chunk) // WORD_LEN
@@ -112,7 +144,28 @@ def pull_trace(pump, cycle, trace, expected_words):
             break
         start += received_words
 
-    return data, round_trips
+    return data, chunks
+
+
+def write_info(directory, saved_info):
+    with open(os.path.join(directory, INFO_FILE_NAME), "w") as file:
+        json.dump(saved_info, file, indent=4)
+
+
+def pull_counts(saved_info):
+    """
+    Requests sent, retries among them and chunks given up on, across every trace pulled so far.
+    """
+    round_trips = 0
+    retries = 0
+    failed = 0
+    for chunks in saved_info["chunks"].values():
+        for record in chunks:
+            round_trips += record["attempts"]
+            retries += record["attempts"] - 1
+            if record["failed"]:
+                failed += 1
+    return round_trips, retries, failed
 
 
 def main():
@@ -157,25 +210,25 @@ def main():
     saved_info = asdict(info)
     saved_info["raw_hex"] = info_raw.hex()
     saved_info["captured"] = f"{HOST}:{PORT} COM{PUMP_COM} pump {PUMP_ADDR} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
-    with open(os.path.join(directory, INFO_FILE_NAME), "w") as file:
-        json.dump(saved_info, file, indent=4)
+    saved_info["chunks"] = {}
+    write_info(directory, saved_info)
 
     start_time = time.monotonic()
     total_bytes = 0
-    total_round_trips = 0
     disagreements = []
     for trace in TRACE_ORDER:
         expected_words = info.encoded_size[trace]
         print(f"\n * GET_PROFILE_TRACE, trace {trace} {PROFILE_TRACE_NAMES[trace]}, {expected_words} words\n")
-        data, round_trips = pull_trace(pump, cycle, trace, expected_words)
+        data, chunks = pull_trace(pump, cycle, trace, expected_words, directory)
 
         # written before anything else happens, so whatever goes wrong later these bytes are already on disk
         path = os.path.join(directory, trace_file_name(trace))
         with open(path, "wb") as file:
             file.write(data)
+        saved_info["chunks"][trace] = chunks
+        write_info(directory, saved_info)
 
         total_bytes += len(data)
-        total_round_trips += round_trips
         received_words = len(data) // WORD_LEN
         if received_words == expected_words:
             print(f"  OK, {received_words} words")
@@ -192,8 +245,10 @@ def main():
     elif not unchanged:
         print("\n  PROFILE INFO CHANGED DURING PULL")
 
+    round_trips, retries, failed = pull_counts(saved_info)
     print("\n * SUMMARY\n")
-    print(f"  cycle {cycle}, {elapsed:.1f}s, {total_bytes} bytes, {total_round_trips} round trips")
+    print(f"  cycle {cycle}, {elapsed:.1f}s, {total_bytes} bytes")
+    print(f"  {round_trips} round trips, {retries} retries, {failed} failed")
     print(f"  {directory}")
 
     print("\n * VERDICT\n")

@@ -3,14 +3,13 @@ Test 4. Look for profiles other than the live one, such as a stored reference, b
 handful of cycle numbers. Nothing is pulled unless one cycle is given with --pull.
 """
 
-import json
 import os
 import struct
 import sys
 import time
 from dataclasses import asdict, dataclass
 
-from capture_format import INFO_FILE_NAME, WORD_LEN, trace_file_name
+from capture_format import WORD_LEN, trace_file_name
 from ncs_client import NCSClient, NCSError
 from pump_client import PumpClient
 from pump_probe import COMMAND_GAP_SEC, code_name
@@ -18,12 +17,24 @@ from pump_protocol import PumpCommand, PumpReturnCode
 from pump_structs import (
     COMPRESSED_ENCODING,
     ENCODING_MASK,
+    MOST_RECENT_DISPENSE,
     PROFILE_TRACE_NAMES,
     PROFILE_TYPE_SHIFT,
     ProfileTraceInfo,
+    dispense_info_known_rows,
+    dispense_info_request,
     profile_info_request,
 )
-from test3 import CAPTURE_ROOT, TRACE_ORDER, pull_trace, read_profile_cycle, read_profile_info, report_failure
+from test3 import (
+    CAPTURE_ROOT,
+    TRACE_ORDER,
+    pull_counts,
+    pull_trace,
+    read_profile_cycle,
+    read_profile_info,
+    report_failure,
+    write_info,
+)
 
 # 2:10.25.85.52:8888:COM8
 HOST = "10.25.85.52"
@@ -39,6 +50,9 @@ LIVE_OFFSETS = [1, 2, 5, 10, 50]
 # zero means the most recent dispense for DISPENSE_INFO, one is the lowest real cycle, and all ones is a common way
 # of naming a special record. only the cycle number is ever varied, never the command
 FIXED_CANDIDATES = [0, 1, 0xFFFFFFFF]
+
+# a DISPENSE_INFO field that may name the cycle of a stored reference profile, our only lead on addressing one
+REFERENCE_CYCLE_LABEL = "ReferenceCycle"
 
 # a bounds error carries the error code again and the index of the request field that was out of bounds
 BOUNDS_ERROR_FORMAT = "<HH"
@@ -90,7 +104,26 @@ def connect():
     return PumpClient(ncs, PUMP_COM, PUMP_ADDR)
 
 
-def candidate_cycles(live):
+def read_reference_cycle(pump):
+    """
+    The ReferenceCycle DISPENSE_INFO reports for the most recent dispense, or None if it didn't give one.
+    """
+    print(f"\n * DISPENSE_INFO, recipe {MOST_RECENT_DISPENSE}\n")
+    time.sleep(COMMAND_GAP_SEC)
+    try:
+        data = pump.read_data(PumpCommand.DISPENSE_INFO, dispense_info_request(MOST_RECENT_DISPENSE))
+    except Exception as error:
+        report_failure("DISPENSE_INFO", error)
+        return None
+
+    for label, value, unit in dispense_info_known_rows(data):
+        if label == REFERENCE_CYCLE_LABEL:
+            print(f"  {label}: {value}")
+            return value
+    return None
+
+
+def candidate_cycles(live, reference):
     """
     The cycle numbers to ask about, the live one first so a known good answer comes before anything speculative.
     """
@@ -100,6 +133,8 @@ def candidate_cycles(live):
             print(f"  skipped {live} - {offset}, below zero")
             continue
         cycles.append(live - offset)
+    if reference is not None and reference not in cycles:
+        cycles.append(reference)
     for cycle in FIXED_CANDIDATES:
         if cycle not in cycles:
             cycles.append(cycle)
@@ -129,19 +164,22 @@ def ask(pump, cycle):
     return answer
 
 
-def print_table(answers, live_type):
+def print_table(answers, live_type, reference):
     """
     One row per cycle asked about, with what made it interesting said at the end of the row.
     """
     print(f"  {'asked':>10}  {'answer':<24}  {'reported':>10}  {'type':>4}  {'enc':>3}  {'samples':>7}  {'words':>6}")
     for answer in answers:
+        source = ""
+        if answer.asked == reference:
+            source = f"  <- {REFERENCE_CYCLE_LABEL}"
         if answer.failure is not None:
-            print(f"  {answer.asked:>10}  {answer.failure}")
+            print(f"  {answer.asked:>10}  {answer.failure}{source}")
             continue
 
         result = code_name(answer.rc) + answer.detail
         if answer.info is None:
-            print(f"  {answer.asked:>10}  {result:<24}")
+            print(f"  {answer.asked:>10}  {result:<24}{source}")
             continue
 
         info = answer.info
@@ -152,6 +190,8 @@ def print_table(answers, live_type):
               f"{str(encoding_of(info)):>3}  {str(info.unencoded_size):>7}  {str(words):>6}", end="")
 
         notes = []
+        if answer.asked == reference:
+            notes.append(REFERENCE_CYCLE_LABEL)
         if answer.is_alias():
             notes.append(f"ALIAS of {info.cycle}")
         if live_type is not None and profile_type(info) != live_type:
@@ -168,8 +208,10 @@ def probe(pump):
         print("\n  FAILED, no profile cycle")
         return 1
 
+    reference = read_reference_cycle(pump)
+
     answers = []
-    for cycle in candidate_cycles(live):
+    for cycle in candidate_cycles(live, reference):
         answers.append(ask(pump, cycle))
 
     live_answer = answers[0]
@@ -178,10 +220,13 @@ def probe(pump):
         live_type = profile_type(live_answer.info)
 
     print(f"\n * CANDIDATES, live cycle {live}\n")
-    print_table(answers, live_type)
+    print_table(answers, live_type, reference)
 
     answered = [answer for answer in answers if answer.info is not None]
-    older = [answer for answer in answered if answer.asked < live and not answer.is_alias()]
+    # the reference isn't one of the live profiles, so counting it would throw off how deep those go
+    older = [answer for answer in answered
+             if answer.asked < live and not answer.is_alias() and answer.asked != reference]
+    reference_held = [answer for answer in answered if answer.asked == reference]
     different = []
     if live_type is not None:
         different = [answer for answer in answered if profile_type(answer.info) != live_type]
@@ -201,6 +246,8 @@ def probe(pump):
     print("\n * NEXT\n")
     if different:
         print(f"  python test4.py {PULL_FLAG} {different[0].asked}")
+    elif reference_held:
+        print(f"  python test4.py {PULL_FLAG} {reference}")
     elif older:
         print(f"  python test4.py {PULL_FLAG} {min(answer.asked for answer in older)}")
     else:
@@ -228,32 +275,32 @@ def pull(pump, cycle):
     if encoding != COMPRESSED_ENCODING:
         print(f"  UNKNOWN ENCODING {encoding}")
 
-    # marked as test 5 so it can't be mistaken for a capture of a live cycle
+    # marked as test 4 so it can't be mistaken for a capture of a live cycle
     directory = os.path.join(CAPTURE_ROOT, f"test4_profile_{cycle}_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(directory)
     saved_info = asdict(info)
     saved_info["raw_hex"] = info_raw.hex()
     saved_info["asked_cycle"] = cycle
     saved_info["captured"] = f"{HOST}:{PORT} COM{PUMP_COM} pump {PUMP_ADDR} at {time.strftime('%Y-%m-%d %H:%M:%S')}"
-    with open(os.path.join(directory, INFO_FILE_NAME), "w") as file:
-        json.dump(saved_info, file, indent=4)
+    saved_info["chunks"] = {}
+    write_info(directory, saved_info)
 
     start_time = time.monotonic()
     total_bytes = 0
-    total_round_trips = 0
     disagreements = []
     for trace in TRACE_ORDER:
         expected_words = info.encoded_size[trace]
         print(f"\n * GET_PROFILE_TRACE, trace {trace} {PROFILE_TRACE_NAMES[trace]}, {expected_words} words\n")
-        data, round_trips = pull_trace(pump, cycle, trace, expected_words)
+        data, chunks = pull_trace(pump, cycle, trace, expected_words, directory)
 
         # written before anything else happens, so whatever goes wrong later these bytes are already on disk
         path = os.path.join(directory, trace_file_name(trace))
         with open(path, "wb") as file:
             file.write(data)
+        saved_info["chunks"][trace] = chunks
+        write_info(directory, saved_info)
 
         total_bytes += len(data)
-        total_round_trips += round_trips
         received_words = len(data) // WORD_LEN
         if received_words == expected_words:
             print(f"  OK, {received_words} words")
@@ -270,9 +317,11 @@ def pull(pump, cycle):
     elif not unchanged:
         print("\n  PROFILE INFO CHANGED DURING PULL")
 
+    round_trips, retries, failed = pull_counts(saved_info)
     print("\n * SUMMARY\n")
     print(f"  cycle {cycle}, reports {info.cycle}, type {profile_type(info)}")
-    print(f"  {elapsed:.1f}s, {total_bytes} bytes, {total_round_trips} round trips")
+    print(f"  {elapsed:.1f}s, {total_bytes} bytes")
+    print(f"  {round_trips} round trips, {retries} retries, {failed} failed")
     print(f"  {directory}")
 
     print("\n * VERDICT\n")

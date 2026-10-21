@@ -310,8 +310,11 @@ def print_summary(steps, answers):
         if step.mismatch is not None:
             mismatches.append(step)
 
+    transport_failures = [step for step in steps if step.gateway_rc is not None]
+
     print("\n\n * SUMMARY\n")
     print(f"  {len(good)} of {len(steps)} GOOD")
+    print(f"  {len(transport_failures)} transport failures")
     for step in others:
         print(f"  {step.name}: {step.outcome()}")
     for step in mismatches:

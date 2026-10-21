@@ -30,11 +30,17 @@ GATEWAY_CHECKS_CRC = True   # False ignores the CRC control bits, so a corrupt r
 REFUSE = {}                 # pump command -> pump return code, e.g. {155: 32} makes DISPENSE_INFO want a password
 REFUSE_SVIDS = {}           # SVID number -> pump return code, any GET_SVIDS asking for one is refused with it
 GATEWAY_COPIES_PUMP_ERROR = True  # a pump error code also goes in the gateway header, as the real box does
+CORRUPT_TRACE = None        # trace number whose GET_PROFILE_TRACE replies get one bit flipped on the bus, None for off
+CORRUPT_TRACE_TIMES = 1     # how many of those replies are flipped before the bus goes clean, a big number for all
+CORRUPT_TRACE_BYTE = 367    # where in the reply frame, the real bus did byte 367 bit 7 once
+CORRUPT_TRACE_MASK = 0x80
 
-# made up, nothing here is known about a real pump. other cycles get a bounds error
-PROFILE_RETENTION = 20      # live cycles held, counting back from the newest
+# retention, the live alias and the refusal are what the real pump did. other cycles are refused with 29
+PROFILE_RETENTION = 3       # live cycles held, counting back from the newest
+LIVE_ALIAS = 0              # asking for this cycle gets the newest profile, None for no alias
+# made up, a real pump reports a ReferenceCycle but we don't know if it holds that profile
 REFERENCE_CYCLE = 118500    # cycle a stored reference profile reports, None for no reference
-REFERENCE_ALIAS = 0xFFFFFFFF  # asking for this cycle also gets the reference, None for no alias
+REFERENCE_ALIAS = None      # asking for this cycle also gets the reference, None for no alias
 
 # ---------------------------------------------------------------------------
 
@@ -73,6 +79,7 @@ PUMP_GOOD = 0
 PUMP_SIZE_ERROR = 1
 PUMP_BAD_CRC = 3
 PUMP_BOUNDS_ERROR = 10
+PUMP_PROFILE_NOT_HELD = 29
 PUMP_NOT_SUPPORTED = 36
 
 # ProductQualifier, Comms_Version, MajorVersion, ModuleType, MinorVersion, ProductCode, MapSize, CRC
@@ -122,7 +129,7 @@ PUMP_REPLIES = {
 # DISPENSE_INFO, only the start is known, padded out to its stated size. RecipeNum, pad, Cycle,
 # ReferenceCycle, Time, JobInfo, SlotID, pad, ReadyPressure, ReferenceReadyPressure
 DISPENSE_INFO_FMT = "<HHLLL24sHHhh116x"
-DISPENSE_INFO = (7, 0, 120000, 119000, 1760000100, b"LOT-A1", 4, 0, 1200, 1190)
+DISPENSE_INFO = (7, 0, 120000, REFERENCE_CYCLE or 0, 1760000100, b"LOT-A1", 4, 0, 1200, 1190)
 
 # ---------------------------------------------------------------------------
 # profile traces. written from the spec, not from the client's decoder: each
@@ -231,6 +238,8 @@ def held_profile(cycle):
     """cycle the reply reports, info after the cycle, and trace words, or None if the pump doesn't hold it"""
     if REFERENCE_CYCLE is not None and cycle in (REFERENCE_CYCLE, REFERENCE_ALIAS):
         return REFERENCE_CYCLE, REFERENCE_INFO_REST, REFERENCE_WORDS
+    if LIVE_ALIAS is not None and cycle == LIVE_ALIAS:
+        return LIVE_PROFILE_CYCLE, PROFILE_INFO_REST, PROFILE_WORDS
     if LIVE_PROFILE_CYCLE - PROFILE_RETENTION < cycle <= LIVE_PROFILE_CYCLE:
         return cycle, PROFILE_INFO_REST, PROFILE_WORDS
     return None
@@ -302,6 +311,9 @@ class Mock:
     def __init__(self):
         self.e = "<" if LITTLE_ENDIAN else ">"
         self.served = [0] * N_IFACE
+        self.trace_corruptions = 0
+        self.request = b""
+        self.last_profile_info = bytes(struct.calcsize(PROFILE_INFO_FMT))
 
     def response(self, rc, body=b""):
         size = HDR_LEN + len(body) if SIZE_INCLUDES_HEADER else len(body)
@@ -356,16 +368,31 @@ class Mock:
             reply[len(reply) // 2] ^= 0x01
             reply = bytes(reply)
             print("  ++ corrupted one byte of the pump reply")
+        if self.corrupts_trace(frame) and CORRUPT_TRACE_BYTE < len(reply):
+            self.trace_corruptions += 1
+            reply = bytearray(reply)
+            reply[CORRUPT_TRACE_BYTE] ^= CORRUPT_TRACE_MASK
+            reply = bytes(reply)
+            print(f"  ++ flipped byte {CORRUPT_TRACE_BYTE} mask {CORRUPT_TRACE_MASK:#04x} of trace {CORRUPT_TRACE}, "
+                  f"time {self.trace_corruptions}")
         hexdump("  serial <--", reply)
 
+        # the real box sends the damaged reply back behind the error
         if GATEWAY_CHECKS_CRC and ctrl & CTRL_CHK_CRC_DEVICE and not pump_crc_ok(reply):
             print("  ++ pump reply failed the CRC check")
-            return self.response(ERR_SERIAL_OUTPUT_INVALID_CRC)
+            return self.response(ERR_SERIAL_OUTPUT_INVALID_CRC, reply)
 
         if GATEWAY_COPIES_PUMP_ERROR and reply[1] != PUMP_GOOD:
             print(f"  ++ pump error {reply[1]} copied into the gateway header")
             return self.response(reply[1], reply)
         return self.response(NO_ERR, reply)
+
+    def corrupts_trace(self, frame):
+        """whether this request's reply is one the bus should damage"""
+        if CORRUPT_TRACE is None or frame[1] != 32 or self.trace_corruptions >= CORRUPT_TRACE_TIMES:
+            return False
+        trace = struct.unpack_from("<H", frame, PUMP_HDR_LEN + 4)[0]
+        return trace == CORRUPT_TRACE
 
     def pump(self, idx, frame):
         """
@@ -387,6 +414,7 @@ class Mock:
             print(f"  ++ refusing pump command {cmd} with {REFUSE[cmd]}")
             return pump_frame(PUMP_ADDR, REFUSE[cmd])
 
+        self.request = frame
         code, body = self.pump_reply(cmd, frame[PUMP_HDR_LEN:-PUMP_CRC_LEN])
         return pump_frame(PUMP_ADDR, code, body)
 
@@ -405,8 +433,9 @@ class Mock:
             cycle, trace, count, start = struct.unpack("<LHHL", data)
             held = held_profile(cycle)
             if held is None:
+                # never seen on a real pump, assumed to refuse the same way profile info does but with no data
                 print(f"  ++ no profile held for cycle {cycle}")
-                return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 0)
+                return PUMP_PROFILE_NOT_HELD, b""
             if trace >= len(PROFILE_WORDS):
                 return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 1)
             if count > PROFILE_MAX_WORDS:
@@ -423,9 +452,11 @@ class Mock:
             cycle = struct.unpack("<L", data)[0]
             held = held_profile(cycle)
             if held is None:
+                # the real pump reuses its reply buffer: our request frame over the last profile info it sent
                 print(f"  ++ no profile held for cycle {cycle}")
-                return PUMP_BOUNDS_ERROR, struct.pack("<HH", PUMP_BOUNDS_ERROR, 0)
-            return PUMP_GOOD, struct.pack(PROFILE_INFO_FMT, held[0], *held[1])
+                return PUMP_PROFILE_NOT_HELD, self.request + self.last_profile_info[len(self.request):]
+            self.last_profile_info = struct.pack(PROFILE_INFO_FMT, held[0], *held[1])
+            return PUMP_GOOD, self.last_profile_info
 
         if cmd == 24:   # GET_ALARMS, data is start alarm number, count, reserved
             start, count, _rsv = struct.unpack("<LHH", data)
@@ -517,7 +548,7 @@ def main():
     print(f"  refuse svids   {REFUSE_SVIDS}")
     print(f"  copy pump err  {GATEWAY_COPIES_PUMP_ERROR}")
     print(f"  profile words  {[len(words) for words in PROFILE_WORDS]}")
-    print(f"  live cycle     {LIVE_PROFILE_CYCLE}, {PROFILE_RETENTION} held")
+    print(f"  live cycle     {LIVE_PROFILE_CYCLE}, {PROFILE_RETENTION} held, alias {LIVE_ALIAS}")
     print(f"  reference      {REFERENCE_CYCLE}, alias {REFERENCE_ALIAS}")
     print()
 

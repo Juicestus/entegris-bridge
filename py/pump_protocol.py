@@ -61,6 +61,8 @@ class PumpReturnCode(IntEnum):
     BOUNDS_ERROR = 10       # data carries the error code and which request field was out of bounds
     SVID_LIST_TOO_LARGE = 12
     UNKNOWN_SVID = 13
+    # named from what we saw, not from any document. it's the answer for a profile cycle the pump doesn't hold
+    PROFILE_NOT_HELD = 29
     BAD_PASSWORD = 32
     NOT_SUPPORTED = 36
 

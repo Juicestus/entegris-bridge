@@ -29,16 +29,20 @@ class PumpTransportError(PumpError):
     """
     The gateway answered, but the frame did not make it to the pump and back.
     """
-    def __init__(self, cmd, gateway_rc):
+    def __init__(self, cmd, gateway_rc, body=b""):
         super().__init__(f"{PumpCommand(cmd).name} did not reach the pump, gateway return code {int(gateway_rc)}")
         self.cmd = cmd
         self.gateway_rc = gateway_rc
+        self.body = body    # whatever the gateway sent back, unchecked, kept so a failure can be looked at later
 
 
 class PumpProtocolError(PumpError):
     """
     Got a reply frame, it does not parse.
     """
+    def __init__(self, message, body=b""):
+        super().__init__(message)
+        self.body = body
 
 
 class PumpReturnCodeError(PumpError):
@@ -72,8 +76,8 @@ class PumpClient:
             return parse_frame(response.body, self.addr)
         except ValueError as error:
             if response.rc != ReturnCode.NO_ERR:
-                raise PumpTransportError(cmd, response.rc) from error
-            raise PumpProtocolError(f"{PumpCommand(cmd).name} reply did not parse: {error}") from error
+                raise PumpTransportError(cmd, response.rc, response.body) from error
+            raise PumpProtocolError(f"{PumpCommand(cmd).name} reply did not parse: {error}", response.body) from error
 
     def get_firmware_info(self):
         """
