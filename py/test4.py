@@ -37,10 +37,8 @@ from test3 import (
 )
 
 # 2:10.25.85.52:8888:COM8
-HOST = "10.25.85.52"
-PORT = 8888
-PUMP_COM = 8
-PUMP_ADDR = 2
+HOST, PORT, PUMP_COM, PUMP_ADDR = "10.25.85.52", 8888, 8, 2
+
 
 PULL_FLAG = "--pull"
 

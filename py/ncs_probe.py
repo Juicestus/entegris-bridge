@@ -3,7 +3,8 @@ Attempt to connect to an NCS box and query basic parameters
 
 Thise phase was successful... output from testing in docs/ncs_probe.out
 """
-
+from util import deprecated
+deprecated()
 
 import sys
 

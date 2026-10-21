@@ -3,6 +3,8 @@ Test connection to a pump and poll a number of SVIDs.
 
 Thise phase was successful... output from testing in docs/pump_probe.out
 """
+from util import deprecated
+deprecated()
 
 import sys
 import time

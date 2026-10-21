@@ -26,22 +26,18 @@ from pump_structs import (
 )
 
 # 2:10.25.85.52:8888:COM8
-HOST = "10.25.85.52"
-PORT = 8888
-PUMP_COM = 8
-PUMP_ADDR = 2
+HOST, PORT, PUMP_COM, PUMP_ADDR = "10.25.85.52", 8888, 8, 2
 
-# each pull gets its own directory under this, named for the cycle and the time
-CAPTURE_ROOT = "captures"
 
 # smallest encoded size first, so the simplest traces are known good before the large pressure traces, which lean
 # hardest on the delta coding, are pulled
 TRACE_ORDER = [7, 9, 8, 5, 6, 2, 3, 4, 1, 0]
 
-# the bus flips the odd bit, so a damaged or lost reply is asked for again. a request the gateway itself rejected
-# as a bad CRC is our own bug and isn't, sending it again would only fail the same way
+MAX_RETRIES = 3
 RETRY_GATEWAY_CODES = [ReturnCode.SERIAL_OUTPUT_INVALID_CRC, ReturnCode.SERIAL_READ_TIMEOUT]
-MAX_RETRIES = 2
+
+def should_retry(error):
+    return isinstance(error, PumpTransportError) and error.gateway_rc in RETRY_GATEWAY_CODES
 
 
 def report_failure(what, error):
@@ -90,8 +86,7 @@ def read_profile_info(pump, cycle):
     return info, raw
 
 
-def should_retry(error):
-    return isinstance(error, PumpTransportError) and error.gateway_rc in RETRY_GATEWAY_CODES
+
 
 
 def request_chunk(pump, cycle, trace, start, count):
@@ -205,7 +200,7 @@ def main():
     if encoding != COMPRESSED_ENCODING:
         print(f"  UNKNOWN ENCODING {encoding}")
 
-    directory = os.path.join(CAPTURE_ROOT, f"profile_{cycle}_{time.strftime('%Y%m%d_%H%M%S')}")
+    directory = os.path.join("captures", f"profile_{cycle}_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(directory)
     saved_info = asdict(info)
     saved_info["raw_hex"] = info_raw.hex()

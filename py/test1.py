@@ -3,6 +3,9 @@ Test 1. Run the pump probe again, with the gateway's requests served counters re
 traffic on every bus over that time can be compared with earlier runs.
 """
 
+from util import deprecated
+deprecated()
+
 import sys
 import time
 
