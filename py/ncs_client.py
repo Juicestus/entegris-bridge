@@ -19,7 +19,6 @@ from ncs_protocol import (
     parse_response,
 )
 from pump_protocol import FRAME_CMD_OFFSET, MIN_FRAME_LEN, allowed_command
-from util import dump_bytes
 
 TIMEOUT_MS          = 5000
 SOCKET_MARGIN_MS    = 1000
@@ -68,26 +67,28 @@ class InterfaceInfo:
 
 
 class NCSClient:
-    def __init__(self, host: str, port: int, timeout_ms=TIMEOUT_MS):
+    def __init__(self, host: str, port: int, timeout_ms=TIMEOUT_MS, log=None):
         self.host = host
         self.port = port
         self.timeout_ms = timeout_ms
+        self.log = log      # a CommsLog that keeps every exchange, or None
 
     def transact(self, cmd, *, lserial=0, ctrl=0, data=b"", check_rc=True):
         """
         Open a connection, send one request, wait for the response and close the connection. Both directions
-        are hex dumped. Raises ReturnCodeError on a nonzero return code unless check_rc is off.
+        go to the log when there is one. Raises ReturnCodeError on a nonzero return code unless check_rc is off.
         """
         packet = build_request(cmd, timeout_ms=self.timeout_ms, lserial=lserial, ctrl=ctrl, data=data)
-        dump_bytes("-->", packet)
 
         # socket timeout has to outlast the header's timeout field, or we give up
         # before the NCS can tell us it timed out on the serial side (1b)
-        socket_timeout = (self.timeout_ms + SOCKET_MARGIN_MS) / MS_PER_SEC 
+        socket_timeout = (self.timeout_ms + SOCKET_MARGIN_MS) / MS_PER_SEC
 
         try:
             sock = socket.create_connection((self.host, self.port), timeout=socket_timeout)
         except OSError as error:
+            if self.log is not None:
+                self.log.record(cmd, lserial, packet, b"", f"connect failed: {error}")
             raise ConnectError(f"could not connect to {self.host}:{self.port}: {error}") from error
 
         received = b""
@@ -111,8 +112,9 @@ class NCSClient:
             except OSError as error:
                 failure = error
 
-        # dump even on failure, from a run we can't watch the dumps are the only evidence we get back
-        dump_bytes("<--", received)
+        # logged even on failure, from a run we can't watch the log is the only evidence we get back
+        if self.log is not None:
+            self.log.record(cmd, lserial, packet, received, None if failure is None else str(failure))
         if failure is not None:
             raise NetworkError(f"{Command(cmd).name} failed talking to {self.host}:{self.port}: {failure}") from failure
 

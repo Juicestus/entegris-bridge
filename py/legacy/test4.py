@@ -17,7 +17,7 @@ import struct
 import time
 from dataclasses import asdict, dataclass
 
-from capture_format import WORD_LEN, trace_file_name
+from capture import trace_file_name
 from ncs_client import NCSClient, NCSError
 from pump_client import PumpClient
 from pump_probe import COMMAND_GAP_SEC, code_name
@@ -28,6 +28,7 @@ from pump_structs import (
     MOST_RECENT_DISPENSE,
     PROFILE_TRACE_NAMES,
     PROFILE_TYPE_SHIFT,
+    WORD_LEN,
     ProfileTraceInfo,
     dispense_info_known_rows,
     dispense_info_request,

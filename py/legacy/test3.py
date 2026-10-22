@@ -1,6 +1,6 @@
 """
 Test 3. Pull every trace of the most recent dispense profile and save the raw bytes, one file per trace, without
-decoding anything. decode.py turns the saved files into a CSV with no pump needed.
+decoding anything. profile_decode.py turns the saved files into a CSV with no pump needed.
 """
 
 import sys
@@ -17,7 +17,7 @@ import os
 import time
 from dataclasses import asdict
 
-from capture_format import INFO_FILE_NAME, WORD_LEN, bad_file_name, trace_file_name
+from capture import INFO_FILE_NAME, trace_file_name
 from ncs_client import NCSClient, NCSError
 from ncs_protocol import ReturnCode
 from pump_client import PumpClient, PumpProtocolError, PumpTransportError
@@ -29,6 +29,7 @@ from pump_structs import (
     MAX_TRACE_WORDS,
     PROFILE_TRACE_NAMES,
     PROFILE_TYPE_SHIFT,
+    WORD_LEN,
     ProfileTraceInfo,
     profile_info_request,
 )
@@ -43,6 +44,13 @@ TRACE_ORDER = [7, 9, 8, 5, 6, 2, 3, 4, 1, 0]
 
 MAX_RETRIES = 3
 RETRY_GATEWAY_CODES = [ReturnCode.SERIAL_OUTPUT_INVALID_CRC, ReturnCode.SERIAL_READ_TIMEOUT]
+
+def bad_file_name(trace, start):
+    """
+    Where a reply that failed its checks is kept. Never read back as trace data, it's only for diagnosis.
+    """
+    return f"trace_{trace}_{start}.bad"
+
 
 def should_retry(error):
     return isinstance(error, PumpTransportError) and error.gateway_rc in RETRY_GATEWAY_CODES

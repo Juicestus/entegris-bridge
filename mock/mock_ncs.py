@@ -90,10 +90,12 @@ PUMP_UNKNOWN_SVID = 13
 
 # the newest profile cycle, reported as ProfileCycle by status and SVID 1058
 LIVE_PROFILE_CYCLE = 119998
+# when it was dispensed. like the real pump, every command describing the newest dispense agrees on cycle and time
+LIVE_PROFILE_TIME = 1776666114
 
 # Status .. OfflineState, shared by RTSTATUS and CS_RTSTATUS
 RT_COMMON_FMT = "hHLHHHHLLLHHHHHHLLLLLhhH"
-RT_COMMON = (3, 0x0011, 120000, 7, 1500, 98, 0, 450000, 120010, 45020,
+RT_COMMON = (3, 0x0011, LIVE_PROFILE_CYCLE, 7, 1500, 98, 0, 450000, 120010, 45020,
              0, 1, 2, 5, 8, 0, 812, 4500, 4400, 800, LIVE_PROFILE_CYCLE, 8250, -1150, 0)
 
 PUMP_REPLIES = {
@@ -119,7 +121,7 @@ PUMP_REPLIES = {
     30: ("<" + "24s" * 12 + "LL", (b"MV-0012345", b"FM-221", b"DM-332", b"FP-443", b"DP-554", b"MB-665",
                                    b"IB-776", b"IF-887", b"", b"", b"", b"", 1760000000, 450000)),
     # LAST_DIS_INFO_2, DispenseVolume is mL x 1000
-    167: ("<4L", (120000, 1500, 0, 0)),
+    167: ("<4L", (LIVE_PROFILE_CYCLE, 1514, 0, 0)),
     # SKIPSTEPINFO
     166: ("<LhhLL", (119000, -3, 0, 0, 0)),
     # DC_STATUS, size unknown, so anything
@@ -129,7 +131,7 @@ PUMP_REPLIES = {
 # DISPENSE_INFO, only the start is known, padded out to its stated size. RecipeNum, pad, Cycle,
 # ReferenceCycle, Time, JobInfo, SlotID, pad, ReadyPressure, ReferenceReadyPressure
 DISPENSE_INFO_FMT = "<HHLLL24sHHhh116x"
-DISPENSE_INFO = (7, 0, 120000, REFERENCE_CYCLE or 0, 1760000100, b"LOT-A1", 4, 0, 1200, 1190)
+DISPENSE_INFO = (7, 0, LIVE_PROFILE_CYCLE, REFERENCE_CYCLE or 0, LIVE_PROFILE_TIME, b"LOT-A1", 4, 0, 1200, 1190)
 
 # ---------------------------------------------------------------------------
 # profile traces. written from the spec, not from the client's decoder: each
@@ -224,7 +226,7 @@ for series in PROFILE_SERIES:
 # Cycle is filled in from the request. Type_Encoding, SampleInterval, Time, StartCycle, DispenseEnd,
 # EndFiltration, EndCycle, FillEnd, UnencodedSize, then ten EncodedSize. the reference run's values
 PROFILE_INFO_FMT = "<LHHLLLLLLL10L"
-PROFILE_INFO_REST = (0x0101, 5, 1776666114, PROFILE_START, 721, 1576, 1943, 1922, PROFILE_SAMPLES,
+PROFILE_INFO_REST = (0x0101, 5, LIVE_PROFILE_TIME, PROFILE_START, 721, 1576, 1943, 1922, PROFILE_SAMPLES,
                      *[len(words) for words in PROFILE_WORDS])
 
 # the stored reference, profile type 2 instead of 1. same traces as the live one except flow, which is a steady
@@ -256,14 +258,16 @@ ALARMS = [
 # are kept an even length so the reply stays a whole number of words
 SVIDS = {
     769: ("H", 1234), 771: ("H", 1011), 773: ("H", 1536),
-    257: ("h", 3), 796: ("H", 1500), 1056: ("L", 120000), 1058: ("L", LIVE_PROFILE_CYCLE),
+    257: ("h", 3), 796: ("H", 1500), 1056: ("L", LIVE_PROFILE_CYCLE), 1058: ("L", LIVE_PROFILE_CYCLE),
     1048: ("L", 812), 1025: ("L", 1760000400),
     269: ("h", 1225), 270: ("h", 350), 287: ("h", 8250), 288: ("h", -1150),
     298: ("h", 2350), 299: ("h", 2410),
     513: ("f", 12.25), 514: ("f", 3.5),
-    10: ("s", b"IntelliGenMV"), 13: ("s", b"FAB7"), 14: ("s", b"TRACK-03"),
+    10: ("s", b"IntelliGenMV"), 11: ("s", b"MV 1011.1536 Rev C"), 12: ("s", b"End user name "),
+    13: ("s", b"FAB7"), 14: ("s", b"TRACK-03"), 16: ("s", b"R3"), 17: ("s", b"FL9550"), 19: ("s", b"Fluid Name"),
+    20: ("s", b"Default Recipe One"), 21: ("s", b"LOT-A1"),
     15: ("s", b"COT2"), 18: ("s", b"PUMP-B"),
-    849: ("H", 97), 1071: ("L", 1760000100),
+    849: ("H", 97), 1071: ("L", LIVE_PROFILE_TIME),
 }
 
 # what the fake box reports, shaped like the real About screen

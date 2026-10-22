@@ -444,6 +444,7 @@ def dispense_info_known_rows(data):
 # cycle, trace number, how many words, first word
 PROFILE_TRACE_REQUEST_FORMAT = ENDIAN + "LHHL"
 MAX_TRACE_WORDS = 500
+WORD_LEN = 2
 
 # Type_Encoding in the profile info holds the encoding in its low byte and the profile type above it
 ENCODING_MASK = 0xFF

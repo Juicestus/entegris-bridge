@@ -1,6 +1,10 @@
 """
-Look at a reply saved as a .bad file and say whether flipping one bit would make its CRC pass. Offline and read only,
-for a person asking what went wrong. Never part of a pull, since accepting a repaired frame would defeat the CRC.
+Single bit repair of a pump frame that failed its CRC. The bus flips the odd bit, and one flipped bit can be found
+exactly because the CRC is linear. A repair is only a candidate, the caller decides whether to trust it.
+
+The pull repairs live under its own checks. Run on its own, this looks at a saved .bad file:
+
+    python crc_repair.py <bad file> [--write-reconstruction PATH]
 """
 
 import argparse
@@ -37,6 +41,12 @@ def repairing_bits(frame):
     """
     needed = crc16(frame) ^ RESIDUE
     return [position for position, change in flip_effects(len(frame)).items() if change == needed]
+
+
+def flip(frame, offset, bit):
+    repaired = bytearray(frame)
+    repaired[offset] ^= 1 << bit
+    return bytes(repaired)
 
 
 def where(offset, length):
@@ -90,10 +100,8 @@ def main():
             print("  not written, pick a path outside the capture directory")
             return 1
         offset, bit = found[0]
-        repaired = bytearray(frame)
-        repaired[offset] ^= 1 << bit
         with open(args.write_reconstruction, "xb") as file:
-            file.write(repaired)
+            file.write(flip(frame, offset, bit))
         print(f"  reconstruction written to {args.write_reconstruction}")
     return 0
 
