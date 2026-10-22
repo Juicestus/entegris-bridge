@@ -3,10 +3,15 @@ Test connection to a pump and poll a number of SVIDs.
 
 Thise phase was successful... output from testing in docs/pump_probe.out
 """
+import sys
+from pathlib import Path
+
+# run from in here, so the shared modules a folder up aren't importable until it's on the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from util import deprecated
 deprecated()
 
-import sys
 import time
 from dataclasses import dataclass, fields
 from enum import IntEnum

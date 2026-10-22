@@ -3,10 +3,15 @@ Test 1. Run the pump probe again, with the gateway's requests served counters re
 traffic on every bus over that time can be compared with earlier runs.
 """
 
+import sys
+from pathlib import Path
+
+# run from in here, so the shared modules a folder up aren't importable until it's on the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from util import deprecated
 deprecated()
 
-import sys
 import time
 
 import pump_probe

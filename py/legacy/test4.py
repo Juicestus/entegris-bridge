@@ -3,9 +3,17 @@ Test 4. Look for profiles other than the live one, such as a stored reference, b
 handful of cycle numbers. Nothing is pulled unless one cycle is given with --pull.
 """
 
+import sys
+from pathlib import Path
+
+# run from in here, so the shared modules a folder up aren't importable until it's on the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from util import deprecated
+deprecated()
+
 import os
 import struct
-import sys
 import time
 from dataclasses import asdict, dataclass
 
@@ -26,7 +34,6 @@ from pump_structs import (
     profile_info_request,
 )
 from test3 import (
-    CAPTURE_ROOT,
     TRACE_ORDER,
     pull_counts,
     pull_trace,
@@ -274,7 +281,7 @@ def pull(pump, cycle):
         print(f"  UNKNOWN ENCODING {encoding}")
 
     # marked as test 4 so it can't be mistaken for a capture of a live cycle
-    directory = os.path.join(CAPTURE_ROOT, f"test4_profile_{cycle}_{time.strftime('%Y%m%d_%H%M%S')}")
+    directory = os.path.join("captures", f"test4_profile_{cycle}_{time.strftime('%Y%m%d_%H%M%S')}")
     os.makedirs(directory)
     saved_info = asdict(info)
     saved_info["raw_hex"] = info_raw.hex()

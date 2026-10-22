@@ -3,14 +3,20 @@ Attempt to connect to an NCS box and query basic parameters
 
 Thise phase was successful... output from testing in docs/ncs_probe.out
 """
+import sys
+from pathlib import Path
+
+# run from in here, so the shared modules a folder up aren't importable until it's on the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 from util import deprecated
 deprecated()
 
-import sys
-
 from ncs_client import ConnectError, NCSClient, NCSError, ReturnCodeError, InterfaceInfo
-from ncs_protocol import COM_PORT_COUNT, LOGICAL_COM1, lserial 
-from util import PRINTABLE_MAX, PRINTABLE_MIN
+from ncs_protocol import COM_PORT_COUNT, LOGICAL_COM1, lserial
+
+PRINTABLE_MIN = 32
+PRINTABLE_MAX = 127
 
 
 def print_status(what, error):

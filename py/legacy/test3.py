@@ -3,9 +3,17 @@ Test 3. Pull every trace of the most recent dispense profile and save the raw by
 decoding anything. decode.py turns the saved files into a CSV with no pump needed.
 """
 
+import sys
+from pathlib import Path
+
+# run from in here, so the shared modules a folder up aren't importable until it's on the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from util import deprecated
+deprecated()
+
 import json
 import os
-import sys
 import time
 from dataclasses import asdict
 

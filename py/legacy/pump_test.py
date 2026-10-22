@@ -3,6 +3,14 @@ Read the firmware information from one pump through the NCS box
 """
 
 import sys
+from pathlib import Path
+
+# run from in here, so the shared modules a folder up aren't importable until it's on the path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from util import deprecated
+deprecated()
+
 from enum import IntEnum
 
 from ncs_client import NCSClient, NCSError
