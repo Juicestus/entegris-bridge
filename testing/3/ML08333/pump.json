@@ -1,0 +1,22 @@
+{
+    "pump_id": null,
+    "serial_number": "ML08333",
+    "pump_name": "TRK30 2-2 R3 FL955",
+    "model_name": "IntelliGen LV",
+    "firmware_version": "V1011 Nov 08 2024",
+    "customer_name": "End user name",
+    "fab_name": "Fab25",
+    "tool_name": "TRK30",
+    "coater_name": "2-2",
+    "nozzle_name": "R3",
+    "resist_name": "FL955",
+    "fluid_name": "Fluid Name",
+    "system_address": 2,
+    "connection_details": "2:10.25.85.52:8888:COM8",
+    "module_type": "54",
+    "created_at": null,
+    "serial_number_from_status": "ML08333",
+    "read_at": "2026-10-23T13:09:45Z",
+    "pump_clock_offset_sec": 74.43396830558777,
+    "problems": []
+}

@@ -1,0 +1,522 @@
+[
+    {
+        "seq": 1,
+        "sent_at": 1792760985.8904088,
+        "command": "SEND_PACKET_SERIALNUMBERS",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 320,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 2,
+        "sent_at": 1792760986.1290452,
+        "command": "SEND_PACKET_CS_RTSTATUS",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 148,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 3,
+        "sent_at": 1792760986.3646731,
+        "command": "SEND_PACKET_VERSION",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 128,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 4,
+        "sent_at": 1792760986.6042862,
+        "command": "SEND_PACKET_FIRMWAREINFO",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 40,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 5,
+        "sent_at": 1792760986.88899,
+        "command": "SEND_PACKET_GET_SVIDS",
+        "lserial": 7,
+        "request_len": 44,
+        "response_len": 286,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 6,
+        "sent_at": 1792760987.1310353,
+        "command": "SEND_PACKET_CS_RTSTATUS",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 148,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 7,
+        "sent_at": 1792760987.3750162,
+        "command": "SEND_PACKET_DISPENSE_INFO",
+        "lserial": 7,
+        "request_len": 26,
+        "response_len": 188,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 8,
+        "sent_at": 1792760987.5943532,
+        "command": "SEND_PACKET_LAST_DIS_INFO_2",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 40,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 9,
+        "sent_at": 1792760987.8239434,
+        "command": "SEND_PACKET_RTSTATUS",
+        "lserial": 7,
+        "request_len": 24,
+        "response_len": 100,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 10,
+        "sent_at": 1792760988.0668166,
+        "command": "SEND_PACKET_GET_SVIDS",
+        "lserial": 7,
+        "request_len": 30,
+        "response_len": 56,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 11,
+        "sent_at": 1792760988.3123374,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE_INFO",
+        "lserial": 7,
+        "request_len": 28,
+        "response_len": 100,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 12,
+        "sent_at": 1792760988.5315974,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 28,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 13,
+        "sent_at": 1792760988.7759416,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 84,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 14,
+        "sent_at": 1792760989.019835,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 94,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 15,
+        "sent_at": 1792760989.267059,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 124,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 16,
+        "sent_at": 1792760989.508742,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 64,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 17,
+        "sent_at": 1792760989.915032,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 972,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 18,
+        "sent_at": 1792760990.284139,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 886,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 19,
+        "sent_at": 1792760990.6915305,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 20,
+        "sent_at": 1792760990.9371915,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 94,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 21,
+        "sent_at": 1792760991.3332086,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 22,
+        "sent_at": 1792760991.6845582,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 696,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 23,
+        "sent_at": 1792760992.0922453,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 24,
+        "sent_at": 1792760992.428835,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 646,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 25,
+        "sent_at": 1792760992.6923835,
+        "command": "SEND_PACKET_DISPENSE_INFO",
+        "lserial": 7,
+        "request_len": 26,
+        "response_len": 188,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 26,
+        "sent_at": 1792760992.9700956,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE_INFO",
+        "lserial": 7,
+        "request_len": 28,
+        "response_len": 100,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 27,
+        "sent_at": 1792760993.1872783,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 28,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 28,
+        "sent_at": 1792760993.431743,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 88,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 29,
+        "sent_at": 1792760993.67662,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 72,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 30,
+        "sent_at": 1792760993.9226463,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 134,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 31,
+        "sent_at": 1792760994.1511352,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 70,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 32,
+        "sent_at": 1792760994.548292,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 972,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 33,
+        "sent_at": 1792760994.9190588,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 892,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 34,
+        "sent_at": 1792760995.3189604,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 994,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 35,
+        "sent_at": 1792760995.7112627,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 36,
+        "sent_at": 1792760996.0601726,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 750,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 37,
+        "sent_at": 1792760996.4750907,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 38,
+        "sent_at": 1792760996.811086,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 654,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 39,
+        "sent_at": 1792760997.0961387,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE_INFO",
+        "lserial": 7,
+        "request_len": 28,
+        "response_len": 100,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 40,
+        "sent_at": 1792760997.3158956,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 28,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 41,
+        "sent_at": 1792760997.5683875,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 96,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 42,
+        "sent_at": 1792760997.7949262,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 84,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 43,
+        "sent_at": 1792760998.0454857,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 132,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 44,
+        "sent_at": 1792760998.2866292,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 68,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 45,
+        "sent_at": 1792760998.671098,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 978,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 46,
+        "sent_at": 1792760999.0455902,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 896,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 47,
+        "sent_at": 1792760999.4504244,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 48,
+        "sent_at": 1792760999.7828546,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 44,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 49,
+        "sent_at": 1792761000.176927,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 50,
+        "sent_at": 1792761000.5088112,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 686,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 51,
+        "sent_at": 1792761000.9134872,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 1024,
+        "gateway_rc": 0,
+        "error": null
+    },
+    {
+        "seq": 52,
+        "sent_at": 1792761001.246231,
+        "command": "SEND_PACKET_GET_PROFILE_TRACE",
+        "lserial": 7,
+        "request_len": 36,
+        "response_len": 638,
+        "gateway_rc": 0,
+        "error": null
+    }
+]

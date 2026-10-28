@@ -1,0 +1,208 @@
+{
+    "address": "2:10.25.85.52:8888:COM8",
+    "cycle": 74643,
+    "newest_cycle": 74645,
+    "collected_at": 1792760996.8553023,
+    "pump": {
+        "serial": "ML08333",
+        "serial_from_status": "ML08333",
+        "model": "IntelliGen LV",
+        "firmware": "V1011 Nov 08 2024",
+        "module_type": 54,
+        "names": {
+            "firmware_string": "V1011 Nov 08 2024",
+            "customer_name": "End user name",
+            "fab_name": "Fab25",
+            "tool_name": "TRK30",
+            "coater_name": "2-2",
+            "nozzle_name": "R3",
+            "resist_name": "FL955",
+            "pump_name": "TRK30 2-2 R3 FL955",
+            "fluid_name": "Fluid Name",
+            "pump_time": 1792761060
+        },
+        "read_at": 1792760985.5660317,
+        "problems": []
+    },
+    "header": null,
+    "header_problem": "DISPENSE_INFO describes cycle 74645 only",
+    "traces": [
+        {
+            "trace": 0,
+            "expected_words": 807,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 500,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                },
+                {
+                    "start": 500,
+                    "count": 307,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 1,
+            "expected_words": 831,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 500,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                },
+                {
+                    "start": 500,
+                    "count": 331,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 2,
+            "expected_words": 477,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 477,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 3,
+            "expected_words": 436,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 436,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 4,
+            "expected_words": 510,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 500,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                },
+                {
+                    "start": 500,
+                    "count": 10,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 5,
+            "expected_words": 54,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 54,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 6,
+            "expected_words": 22,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 22,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 7,
+            "expected_words": 2,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 2,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 8,
+            "expected_words": 30,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 30,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        },
+        {
+            "trace": 9,
+            "expected_words": 36,
+            "chunks": [
+                {
+                    "start": 0,
+                    "count": 36,
+                    "attempts": 1,
+                    "failed": false,
+                    "errors": [],
+                    "bad_replies": [],
+                    "repair": null
+                }
+            ]
+        }
+    ]
+}
