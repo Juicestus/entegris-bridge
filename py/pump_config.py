@@ -69,7 +69,7 @@ NAME_COLUMN = "name"
 @dataclass(frozen=True)
 class PumpConfig:
     address: PumpAddress
-    frequency_s: int            # how often to collect, read but unused until there's a scheduler
+    frequency_s: int            # how often to collect, seconds from the start of one to the next
     name: str = None            # a local alias for logs, the pump reports its own name
 
     def label(self):
@@ -77,31 +77,50 @@ class PumpConfig:
             return f"{self.name} ({self.address})"
         return str(self.address)
 
+class PumpTable:
+    configs: list[PumpConfig]
 
-def load_config(path):
-    """
-    Every pump in the file, in file order. Raises on the first row that doesn't parse, naming its line.
-    """
-    configs = []
-    with open(path, newline="") as file:
-        reader = csv.DictReader(file)
-        missing = {ADDRESS_COLUMN, FREQUENCY_COLUMN} - set(reader.fieldnames or [])
-        if missing:
-            raise ValueError(f"{path} has no {', '.join(sorted(missing))} column")
+    def __init__(self):
+        self.configs = []
 
-        for row in reader:
-            if not (row[ADDRESS_COLUMN] or "").strip():
-                continue
-            try:
-                configs.append(PumpConfig(
-                    address=PumpAddress.parse(row[ADDRESS_COLUMN]),
-                    frequency_s=int(row[FREQUENCY_COLUMN]),
-                    name=(row.get(NAME_COLUMN) or "").strip() or None,
-                ))
-            except ValueError as error:
-                raise ValueError(f"{path} line {reader.line_num}: {error}") from error
+    def load_from_csv(self, path):
+        """
+        Load from the CSV file
+        """
+        configs = []
+        with open(path, newline="") as file:
+            reader = csv.DictReader(file)
+            missing = {ADDRESS_COLUMN, FREQUENCY_COLUMN} - set(reader.fieldnames or [])
+            if missing:
+                raise ValueError(f"{path} has no {', '.join(sorted(missing))} column")
 
-    addresses = [config.address for config in configs]
-    if len(set(addresses)) != len(addresses):
-        raise ValueError(f"{path} lists the same pump more than once")
-    return configs
+            for row in reader:
+                if not (row[ADDRESS_COLUMN] or "").strip():
+                    continue
+                try:
+                    configs.append(PumpConfig(
+                        address=PumpAddress.parse(row[ADDRESS_COLUMN]),
+                        frequency_s=int(row[FREQUENCY_COLUMN]),
+                        name=(row.get(NAME_COLUMN) or "").strip() or None,
+                    ))
+                except ValueError as error:
+                    raise ValueError(f"{path} line {reader.line_num}: {error}") from error
+
+        addresses = [config.address for config in configs]
+        if len(set(addresses)) != len(addresses):
+            raise ValueError(f"{path} lists the same pump more than once")
+        self.configs = configs
+
+    def load_from_db(self):
+        raise NotImplementedError("TODO")
+
+    def bus_groups(self):
+        """
+        Pumps grouped by the serial bus they share, a bus being one COM port on one NCS. Pumps on one bus can never
+        be talked to at once, so this is the unit that could run in parallel later.
+        """
+        groups = {}
+        for config in self.configs:
+            groups.setdefault((config.address.host, config.address.port, config.address.com), []).append(config)
+        return list(groups.values())
+

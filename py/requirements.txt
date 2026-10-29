@@ -1,1 +1,11 @@
-pandas
+# pip install -r requirements.txt
+# everything but pandas is only needed when pushing to the cloud, bridge.py --nopush runs without it
+
+# lineterminator in to_csv needs pandas 1.5
+pandas>=1.5
+
+python-dotenv
+google-auth
+google-cloud-storage
+cloud-sql-python-connector[pg8000]
+pg8000

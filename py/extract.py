@@ -1,23 +1,17 @@
 """
-Collect from every pump in a config file, one after another, and render what was collected.
-
-    python extract.py --config pumps.csv [--out out] [--save {0,1,2}]
+Collect from one pump and render what was collected. bridge.py decides which pumps and when.
 """
 
-import argparse
-import os
-import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 
 import file_writer
 from capture import Capture
 from comms_log import CommsLog
-from file_writer import CollectedCycles, FileDBWriter, write_json
+from file_writer import CollectedCycles
 from ncs_client import NCSClient, NCSError
 from profile_pull import pull_profile
 from pump_client import PumpClient, PumpError
-from pump_config import load_config
 from pump_reader import read_dispense_cycle, read_dispense_header, read_newest_cycle, read_pump_info, read_profile_info
 from render import WriteError, already_clean, render, write_pump
 
@@ -56,17 +50,6 @@ class PumpResult:
     cycles: list = field(default_factory=list)
     problems: list = field(default_factory=list)
     error: str = None       # why the pump couldn't be finished
-
-
-def bus_groups(configs):
-    """
-    Pumps grouped by the serial bus they share, a bus being one COM port on one NCS. Pumps on one bus can never
-    be talked to at once, so this is the unit that could run in parallel later.
-    """
-    groups = {}
-    for config in configs:
-        groups.setdefault((config.address.host, config.address.port, config.address.com), []).append(config)
-    return list(groups.values())
 
 
 def collect_cycle(pump, pump_info, address, cycle, newest, header):
@@ -182,37 +165,3 @@ def extract_pump(config, options):
         print(f"  FAILED, {result.error}")
     return result
 
-
-def main():
-    parser = argparse.ArgumentParser(description="Collect dispense profiles from the pumps in a config file.")
-    parser.add_argument("--config", required=True, help="CSV of address,frequency_s,name")
-    parser.add_argument("--out", default="out", help="where outputs go")
-    parser.add_argument("--save", type=int, choices=[SAVE_OUTPUTS, SAVE_CAPTURE, SAVE_COMMS], default=SAVE_CAPTURE,
-                        help="0 outputs only, 1 also raw captures, 2 also every NCS request and reply")
-    args = parser.parse_args()
-
-    try:
-        configs = load_config(args.config)
-    except (OSError, ValueError) as error:
-        print(f"  config: {error}")
-        return 2
-    options = Options(args.out, args.save, time.strftime(file_writer.RUN_TIME_FORMAT), [FileDBWriter(args.out)])
-
-    results = []
-    for group in bus_groups(configs):
-        for config in group:
-            results.append(extract_pump(config, options))
-
-    run_dir = file_writer.run_dir(options.out, options.run_time)
-    os.makedirs(run_dir, exist_ok=True)
-    write_json(os.path.join(run_dir, file_writer.RUN_FILE_NAME),
-               {"run_time": options.run_time, "save": options.save, "pumps": [asdict(r) for r in results]})
-
-    failed = [result for result in results if result.error is not None]
-    print(f"\n  {len(results) - len(failed)} of {len(results)} pumps done")
-    print(f"  {os.path.join(run_dir, file_writer.RUN_FILE_NAME)}")
-    return 1 if failed else 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())

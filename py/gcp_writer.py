@@ -1,35 +1,71 @@
 import atexit
+import json
 import os
+import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import pandas as pd
+from dotenv import dotenv_values
 from google.cloud import storage
 from google.cloud.sql.connector import Connector
+from google.oauth2 import service_account
 from pg8000.exceptions import InterfaceError
 
-from writer_base import DBWriter
+from writer_base import DISPENSE_TABLE, PUMP_TABLE, DBWriter
 
-# errors that mean "the connection is broken", not "your SQL is wrong"
 CONNECTION_ERRORS = (InterfaceError, OSError)
+OBJECT_EXTENSION = ".csv"
+SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
+
+# filled in by the database, sending them even as null overrides its own values
+DATABASE_COLUMNS = {"pump_id", "dispense_id", "created_at", "ingested_at"}
+# what makes a row the same row, so writing it again updates it. needs a unique constraint on these in the table
+CONFLICT_KEYS = {
+    PUMP_TABLE: ["serial_number"],
+    DISPENSE_TABLE: ["pump_id", "cycle_number"],
+}
+# TODO: dispense has no unique constraint on its key yet, so it gets an update then insert instead of ON CONFLICT.
+# once the database has UNIQUE (pump_id, cycle_number) on dispense, empty this and delete update_or_insert
+NO_UNIQUE_KEY = {DISPENSE_TABLE}
+JSON_TYPES = {"json", "jsonb"}
 
 
 @dataclass(frozen=True)
 class GCPConfig:
+    project: str
+    credentials_path: str   # the service account key file
     instance: str      # "project:region:instance"
     db: str
     user: str
     password: str
     bucket_name: str
+    prefix: str = ""   # put in front of every object path, keeps dev and production apart in one bucket
 
     @classmethod
-    def from_env(cls) -> "GCPConfig":
+    def from_env(cls, path=None) -> "GCPConfig":
+        """
+        From an env file, or from the process environment when there's no file.
+        """
+        if path is None:
+            env = os.environ
+            credentials_path = os.path.abspath(env["GOOGLE_APPLICATION_CREDENTIALS"])
+        else:
+            if not os.path.exists(path):
+                raise FileNotFoundError(path)
+            env = dotenv_values(path)
+            # the key file is named relative to the env file, so the bridge can be run from any folder
+            credentials_path = os.path.join(os.path.dirname(os.path.abspath(path)),
+                                            env["GOOGLE_APPLICATION_CREDENTIALS"])
         return cls(
-            instance=os.environ["CLOUDSQL_INSTANCE"],
-            db=os.environ["DB_NAME"],
-            user=os.environ["DB_USER"],
-            password=os.environ["DB_PASSWORD"],
-            bucket_name=os.environ["GCS_BUCKET"],
+            project=env["GOOGLE_CLOUD_PROJECT"],
+            credentials_path=credentials_path,
+            instance=env["INSTANCE_CONNECTION_NAME"],
+            db=env["DB_NAME"],
+            user=env["DB_USER"],
+            password=env["DB_PASSWORD"],
+            bucket_name=env["GCS_BUCKET"],
+            prefix=env.get("GCS_PREFIX", ""),
         )
 
 
@@ -37,13 +73,15 @@ class GCPConnection:
     """
     Owns the connection to the Cloud SQL and the GCS Bucket
     """
-    def __init__(self, cfg: GCPConfig | None = None):
-        self.cfg = cfg or GCPConfig.from_env()
-        self.connector = Connector()
+    def __init__(self, cfg: GCPConfig):
+        self.cfg = cfg
+        # handed to both clients, so neither goes looking for credentials elsewhere on the machine
+        credentials = service_account.Credentials.from_service_account_file(cfg.credentials_path, scopes=SCOPES)
+        self.connector = Connector(credentials=credentials)
         self.connection = None
         atexit.register(self.close)
         self.reconnect()
-        self.bucket = storage.Client().bucket(self.cfg.bucket_name)
+        self.bucket = storage.Client(project=cfg.project, credentials=credentials).bucket(cfg.bucket_name)
 
     def reconnect(self):
         if self.connection is not None:
@@ -68,55 +106,207 @@ class GCPDBWriter(DBWriter):
     def __init__(self, gcp: GCPConnection, retries: int = 3):
         self.gcp = gcp
         self.retries = retries
+        self.pump_ids = {}          # serial number to pump_id, so each pump is looked up once
+        self.column_types = {}      # table to {column: type}, read from the database once
 
-    @staticmethod 
+    @staticmethod
     def _ident(name: str) -> str:
         """
         Quote a Postgres identifier
         """
         return '"' + name.replace('"', '""') + '"'
 
-    def _execute(self, sql: str, params: tuple):
-        """
-        SQL Transaction
-        """
-        conn = self.gcp.connection
-        cur = conn.cursor()
-        try:
-            cur.execute(sql, params)
-            conn.commit()
-        except CONNECTION_ERRORS:
-            raise                                 # dead connection, can't roll back
-        except Exception:
-            conn.rollback()                       # bad SQL/data, connection is ok
-            raise
-        finally:
-            cur.close()
+    def types(self, cur, table):
+        if table not in self.column_types:
+            cur.execute("SELECT column_name, data_type FROM information_schema.columns "
+                        "WHERE table_schema = 'public' AND table_name = %s", (table,))
+            self.column_types[table] = dict(cur.fetchall())
+        return self.column_types[table]
 
-    def write_row(self, table: str, row: dict):
-        if not row:
-            raise ValueError("row is empty")
+    def pump_id(self, cur, serial):
+        if serial not in self.pump_ids:
+            cur.execute(f"SELECT pump_id FROM {self._ident(PUMP_TABLE)} WHERE serial_number = %s", (serial,))
+            found = cur.fetchone()
+            if found is None:
+                raise ValueError(f"no pump row for serial {serial}")
+            self.pump_ids[serial] = found[0]
+        return self.pump_ids[serial]
+
+    def prepare(self, cur, table, row):
+        """
+        Our row as the table takes it: ids the database assigns left out, the dispense row linked to its pump by
+        pump_id rather than serial number, and lists and dicts as JSON where the column is JSON.
+        """
+        row = {column: value for column, value in row.items() if column not in DATABASE_COLUMNS}
+        if table == DISPENSE_TABLE:
+            row["pump_id"] = self.pump_id(cur, row.pop("serial_number"))
+
+        types = self.types(cur, table)
+        for column, value in row.items():
+            if types.get(column) in JSON_TYPES and value is not None:
+                row[column] = json.dumps(value)
+        return row
+
+    def upsert(self, cur, table, row):
+        """
+        Insert the row, or update the one with the same key. Doesn't commit, so the caller decides.
+        """
+        row = self.prepare(cur, table, row)
+        keys = CONFLICT_KEYS[table]
+        if table in NO_UNIQUE_KEY:
+            self.update_or_insert(cur, table, row, keys)
+            return
 
         cols = ", ".join(self._ident(c) for c in row)
         placeholders = ", ".join(["%s"] * len(row))
-        sql = f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders})"
-        params = tuple(row.values())
+        updates = ", ".join(f"{self._ident(c)} = EXCLUDED.{self._ident(c)}" for c in row if c not in keys)
+        sql = (f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders}) "
+               f"ON CONFLICT ({', '.join(self._ident(c) for c in keys)}) DO UPDATE SET {updates}")
+        if table == PUMP_TABLE:
+            sql += " RETURNING pump_id"
+        cur.execute(sql, tuple(row.values()))
+        if table == PUMP_TABLE:
+            self.pump_ids[row["serial_number"]] = cur.fetchone()[0]
 
+    def update_or_insert(self, cur, table, row, keys):
+        """
+        The upsert for a table with no unique constraint on its key. Safe while only one bridge writes each pump,
+        two writing the same row at the same moment could both insert.
+        """
+        values = [c for c in row if c not in keys]
+        sets = ", ".join(f"{self._ident(c)} = %s" for c in values)
+        matches = " AND ".join(f"{self._ident(c)} = %s" for c in keys)
+        cur.execute(f"UPDATE {self._ident(table)} SET {sets} WHERE {matches}",
+                    tuple(row[c] for c in values) + tuple(row[c] for c in keys))
+        if cur.rowcount > 0:
+            return
+
+        cols = ", ".join(self._ident(c) for c in row)
+        placeholders = ", ".join(["%s"] * len(row))
+        cur.execute(f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders})", tuple(row.values()))
+
+    def write_row(self, table: str, row: dict):
         for attempt in range(self.retries + 1):
+            conn = self.gcp.connection
+            cur = conn.cursor()
             try:
-                self._execute(sql, params)
+                self.upsert(cur, table, row)
+                conn.commit()
                 return
             except CONNECTION_ERRORS:
+                # dead connection, nothing to roll back. the upsert makes sending it again safe
                 if attempt == self.retries:
                     raise
-                time.sleep(2 ** attempt)          
+                time.sleep(2 ** attempt)
                 try:
                     self.gcp.reconnect()
                 except CONNECTION_ERRORS:
-                    pass                          
-  
+                    pass
+            except Exception:
+                conn.rollback()                       # bad SQL/data, connection is ok
+                raise
+            finally:
+                cur.close()
 
     def write_obj(self, path: str, data: pd.DataFrame):
-        self.gcp.bucket.blob(path).upload_from_string(
-            data.to_csv(index=False), content_type="text/csv"
+        blob = self.gcp.bucket.blob(self.gcp.cfg.prefix + path + OBJECT_EXTENSION)
+        blob.upload_from_string(
+            data.to_csv(index=False, lineterminator="\n"), content_type="text/csv"
         )
+        return f"gs://{self.gcp.cfg.bucket_name}/{blob.name}"
+
+
+
+
+TEST_PATH = "connection_test/test"
+TEST_SERIAL = "CONNECTION_TEST"
+TEST_TIME = "2026-01-01T00:00:00Z"      # the format render writes times in
+
+def main():
+    """
+    Check the database and bucket in an env file can be reached, without leaving anything behind.
+
+        python gcp_writer.py cred.env
+    """
+    # imported here so the writer itself never depends on the records
+    from render import DispenseRecord, PumpRecord
+
+    if len(sys.argv) != 2:
+        print("usage: python gcp_writer.py <env file>")
+        return 2
+    cfg = GCPConfig.from_env(sys.argv[1])
+    print(f"  {cfg.instance} {cfg.db} as {cfg.user}, gs://{cfg.bucket_name}/{cfg.prefix}")
+
+    gcp = GCPConnection(cfg)
+    writer = GCPDBWriter(gcp)
+    failed = False
+
+    print("\n * database\n")
+    cur = gcp.connection.cursor()
+    cur.execute("SELECT version()")
+    print(f"  {cur.fetchone()[0]}")
+    cur.execute("SELECT table_name, column_name, data_type, is_nullable, column_default IS NOT NULL "
+                "FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position")
+    tables = {}
+    for table, column, data_type, nullable, has_default in cur.fetchall():
+        # only the tables we write get their types, the rest would just be noise
+        if table in (PUMP_TABLE, DISPENSE_TABLE):
+            column = f"{column} {data_type}"
+            # a column we must always fill, the database won't accept the row without it
+            if nullable == "NO" and not has_default:
+                column += " REQUIRED"
+        tables.setdefault(table, []).append(column)
+    for table, columns in tables.items():
+        print(f"  {table}: {', '.join(columns)}")
+
+    print("\n * keys\n")
+    cur.execute("SELECT tc.table_name, tc.constraint_type, "
+                "string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) "
+                "FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu "
+                "ON tc.constraint_name = kcu.constraint_name AND tc.table_schema = kcu.table_schema "
+                "WHERE tc.table_schema = 'public' AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE') "
+                "GROUP BY tc.table_name, tc.constraint_name, tc.constraint_type ORDER BY tc.table_name")
+    for table, kind, columns in cur.fetchall():
+        print(f"  {table}: {kind} ({columns})")
+    cur.close()
+
+    # both written the way the bridge writes them, twice so the update path runs too, then all rolled back
+    print("\n * row fit, rolled back\n")
+    cur = gcp.connection.cursor()
+    try:
+        for table, record in [(PUMP_TABLE, PumpRecord(serial_number=TEST_SERIAL)),
+                              (DISPENSE_TABLE, DispenseRecord(serial_number=TEST_SERIAL, cycle_number=0,
+                                                              triggered_at=TEST_TIME, recorded_at=TEST_TIME,
+                                                              problems=["test"], blank_traces=[1],
+                                                              repairs=[{"trace": 1, "byte": 2, "bit": 7}]))]:
+            for attempt in ("insert", "update"):
+                writer.upsert(cur, table, asdict(record))
+                print(f"  {table} {attempt} OK")
+    except Exception as error:
+        print(f"  FAILED, {type(error).__name__}: {error}")
+        failed = True
+    finally:
+        gcp.connection.rollback()
+        cur.close()
+
+    print("\n * bucket\n")
+    frame = pd.DataFrame({"a": [1, 2, 3], "b": [0.5, 1.5, 2.5]})
+    try:
+        uri = writer.write_obj(TEST_PATH, frame)
+        print(f"  uploaded {uri}")
+        blob = gcp.bucket.blob(cfg.prefix + TEST_PATH + OBJECT_EXTENSION)
+        same = blob.download_as_text() == frame.to_csv(index=False, lineterminator="\n")
+        print(f"  read back {'OK' if same else 'DIFFERENT'}")
+        failed = failed or not same
+        blob.delete()
+        print("  deleted")
+    except Exception as error:
+        print(f"  FAILED, {type(error).__name__}: {error}")
+        failed = True
+
+    print("\n  FAILED" if failed else "\n  PASSED")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
