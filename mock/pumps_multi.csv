@@ -1,0 +1,4 @@
+address,frequency_s,name
+2:127.0.0.1:4002:COM8,30,pump A
+3:127.0.0.1:4002:COM8,60,absent
+2:127.0.0.1:4003:COM8,45,pump B

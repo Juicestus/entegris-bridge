@@ -7,22 +7,12 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-PUMP_TABLE = "pump"
-DISPENSE_TABLE = "dispense"
-
-# the columns that pick out one row, the same ones the database would use
-TABLE_KEYS = {
-    PUMP_TABLE: ["serial_number"],
-    DISPENSE_TABLE: ["serial_number", "cycle_number"],
-}
-
-
 class DBWriter(ABC):
 
     @abstractmethod
-    def write_row(self, table: str, row: dict):
+    def write_row(self, table: str, row: dict, keys: list):
         """
-        Insert the row, or replace the one with the same key.
+        Insert the row, or replace the one with the same values in the key columns.
         """
 
     @abstractmethod

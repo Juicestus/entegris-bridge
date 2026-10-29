@@ -3,3 +3,6 @@ x64/
 .vs
 .claude
 .mcp.json
+# cloud credentials, never committed
+*.env
+py/cred.json

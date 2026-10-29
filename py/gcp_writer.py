@@ -1,3 +1,4 @@
+import argparse
 import atexit
 import json
 import os
@@ -12,23 +13,20 @@ from google.cloud.sql.connector import Connector
 from google.oauth2 import service_account
 from pg8000.exceptions import InterfaceError
 
-from writer_base import DISPENSE_TABLE, PUMP_TABLE, DBWriter
+from writer_base import DBWriter
 
 CONNECTION_ERRORS = (InterfaceError, OSError)
 OBJECT_EXTENSION = ".csv"
 SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 
-# filled in by the database, sending them even as null overrides its own values
-DATABASE_COLUMNS = {"pump_id", "dispense_id", "created_at", "ingested_at"}
-# what makes a row the same row, so writing it again updates it. needs a unique constraint on these in the table
-CONFLICT_KEYS = {
-    PUMP_TABLE: ["serial_number"],
-    DISPENSE_TABLE: ["pump_id", "cycle_number"],
-}
-# TODO: dispense has no unique constraint on its key yet, so it gets an update then insert instead of ON CONFLICT.
-# once the database has UNIQUE (pump_id, cycle_number) on dispense, empty this and delete update_or_insert
-NO_UNIQUE_KEY = {DISPENSE_TABLE}
 JSON_TYPES = {"json", "jsonb"}
+
+# hack: what this database does differently from our rows. it assigns its own ids, sending them even as null
+# overrides them, and it links rows to their pump by its own pump id where our rows carry the serial number
+DATABASE_COLUMNS = {"pump_id", "dispense_id", "created_at", "ingested_at"}
+PUMP_TABLE = "pump"
+PUMP_ID = "pump_id"
+SERIAL = "serial_number"
 
 
 @dataclass(frozen=True)
@@ -108,6 +106,7 @@ class GCPDBWriter(DBWriter):
         self.retries = retries
         self.pump_ids = {}          # serial number to pump_id, so each pump is looked up once
         self.column_types = {}      # table to {column: type}, read from the database once
+        self.unique_keys = {}       # table to the column sets it has a unique constraint on, read once
 
     @staticmethod
     def _ident(name: str) -> str:
@@ -123,55 +122,63 @@ class GCPDBWriter(DBWriter):
             self.column_types[table] = dict(cur.fetchall())
         return self.column_types[table]
 
+    def has_unique(self, cur, table, keys):
+        if table not in self.unique_keys:
+            cur.execute("SELECT string_agg(kcu.column_name, ',') FROM information_schema.table_constraints tc "
+                        "JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name "
+                        "AND tc.table_schema = kcu.table_schema WHERE tc.table_schema = 'public' "
+                        "AND tc.table_name = %s AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE') "
+                        "GROUP BY tc.constraint_name", (table,))
+            self.unique_keys[table] = [set(columns.split(",")) for (columns,) in cur.fetchall()]
+        return set(keys) in self.unique_keys[table]
+
     def pump_id(self, cur, serial):
         if serial not in self.pump_ids:
-            cur.execute(f"SELECT pump_id FROM {self._ident(PUMP_TABLE)} WHERE serial_number = %s", (serial,))
+            cur.execute(f"SELECT {PUMP_ID} FROM {self._ident(PUMP_TABLE)} WHERE {SERIAL} = %s", (serial,))
             found = cur.fetchone()
             if found is None:
                 raise ValueError(f"no pump row for serial {serial}")
             self.pump_ids[serial] = found[0]
         return self.pump_ids[serial]
 
-    def prepare(self, cur, table, row):
+    def prepare(self, cur, table, row, keys):
         """
-        Our row as the table takes it: ids the database assigns left out, the dispense row linked to its pump by
-        pump_id rather than serial number, and lists and dicts as JSON where the column is JSON.
+        Our row and its key as the table takes them: ids the database assigns left out, the serial number swapped
+        for the pump id where the table links by pump id, and lists and dicts as JSON where the column is JSON.
         """
-        row = {column: value for column, value in row.items() if column not in DATABASE_COLUMNS}
-        if table == DISPENSE_TABLE:
-            row["pump_id"] = self.pump_id(cur, row.pop("serial_number"))
-
         types = self.types(cur, table)
+        row = {column: value for column, value in row.items() if column not in DATABASE_COLUMNS}
+        if SERIAL in row and SERIAL not in types and PUMP_ID in types:
+            row[PUMP_ID] = self.pump_id(cur, row.pop(SERIAL))
+            keys = [PUMP_ID if column == SERIAL else column for column in keys]
+
         for column, value in row.items():
             if types.get(column) in JSON_TYPES and value is not None:
                 row[column] = json.dumps(value)
-        return row
+        return row, keys
 
-    def upsert(self, cur, table, row):
+    def upsert(self, cur, table, row, keys):
         """
         Insert the row, or update the one with the same key. Doesn't commit, so the caller decides.
         """
-        row = self.prepare(cur, table, row)
-        keys = CONFLICT_KEYS[table]
-        if table in NO_UNIQUE_KEY:
+        row, keys = self.prepare(cur, table, row, keys)
+        if not self.has_unique(cur, table, keys):
             self.update_or_insert(cur, table, row, keys)
             return
 
         cols = ", ".join(self._ident(c) for c in row)
         placeholders = ", ".join(["%s"] * len(row))
         updates = ", ".join(f"{self._ident(c)} = EXCLUDED.{self._ident(c)}" for c in row if c not in keys)
-        sql = (f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders}) "
-               f"ON CONFLICT ({', '.join(self._ident(c) for c in keys)}) DO UPDATE SET {updates}")
-        if table == PUMP_TABLE:
-            sql += " RETURNING pump_id"
-        cur.execute(sql, tuple(row.values()))
-        if table == PUMP_TABLE:
-            self.pump_ids[row["serial_number"]] = cur.fetchone()[0]
+        cur.execute(f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders}) "
+                    f"ON CONFLICT ({', '.join(self._ident(c) for c in keys)}) DO UPDATE SET {updates}",
+                    tuple(row.values()))
 
     def update_or_insert(self, cur, table, row, keys):
         """
-        The upsert for a table with no unique constraint on its key. Safe while only one bridge writes each pump,
-        two writing the same row at the same moment could both insert.
+        The upsert for a table with no unique constraint on its key, which ON CONFLICT needs. Safe while only one
+        bridge writes each pump, two writing the same row at the same moment could both insert.
+        TODO: dispense is the only one, until the database has UNIQUE (pump_id, cycle_number) on it. this goes
+        once nothing needs it
         """
         values = [c for c in row if c not in keys]
         sets = ", ".join(f"{self._ident(c)} = %s" for c in values)
@@ -185,12 +192,12 @@ class GCPDBWriter(DBWriter):
         placeholders = ", ".join(["%s"] * len(row))
         cur.execute(f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders})", tuple(row.values()))
 
-    def write_row(self, table: str, row: dict):
+    def write_row(self, table: str, row: dict, keys: list):
         for attempt in range(self.retries + 1):
             conn = self.gcp.connection
             cur = conn.cursor()
             try:
-                self.upsert(cur, table, row)
+                self.upsert(cur, table, row, keys)
                 conn.commit()
                 return
             except CONNECTION_ERRORS:
@@ -222,22 +229,94 @@ TEST_PATH = "connection_test/test"
 TEST_SERIAL = "CONNECTION_TEST"
 TEST_TIME = "2026-01-01T00:00:00Z"      # the format render writes times in
 
+def profiles_prefix(cfg, serial):
+    # imported here so the writer itself never depends on render
+    from render import PROFILES_PATH
+    return f"{cfg.prefix}{PROFILES_PATH}/{serial}/"
+
+
+def show(gcp, serial):
+    """
+    What the database and bucket hold for one pump.
+    """
+    cur = gcp.connection.cursor()
+    cur.execute("SELECT pump_id, pump_name, read_at FROM pump WHERE serial_number = %s", (serial,))
+    pump = cur.fetchone()
+    if pump is None:
+        print(f"  no pump row for {serial}")
+    else:
+        print(f"  pump {serial}, pump_id {pump[0]}, {pump[1]}, read {pump[2]}")
+        cur.execute("SELECT cycle_number, triggered_at, header_available, blank_traces, reconstructed, retries, "
+                    "trace_object_uri FROM dispense WHERE pump_id = %s ORDER BY cycle_number", (pump[0],))
+        rows = cur.fetchall()
+        print(f"\n  {len(rows)} dispense rows")
+        for cycle, triggered, header, blank, reconstructed, retries, uri in rows:
+            print(f"  {cycle} {triggered}, header {header}, blank {blank}, reconstructed {reconstructed}, "
+                  f"retries {retries}, {uri}")
+    cur.close()
+
+    blobs = list(gcp.bucket.list_blobs(prefix=profiles_prefix(gcp.cfg, serial)))
+    print(f"\n  {len(blobs)} profile objects")
+    for blob in blobs:
+        print(f"  gs://{gcp.cfg.bucket_name}/{blob.name}, {blob.size} bytes")
+    return 0
+
+
+def delete(gcp, serial):
+    """
+    Remove one pump's rows and profile objects, to clean up after a test.
+    """
+    cur = gcp.connection.cursor()
+    try:
+        cur.execute("DELETE FROM dispense WHERE pump_id IN (SELECT pump_id FROM pump WHERE serial_number = %s)",
+                    (serial,))
+        dispense_count = cur.rowcount
+        cur.execute("DELETE FROM pump WHERE serial_number = %s", (serial,))
+        pump_count = cur.rowcount
+        gcp.connection.commit()
+    except Exception:
+        gcp.connection.rollback()
+        raise
+    finally:
+        cur.close()
+    print(f"  deleted {pump_count} pump rows, {dispense_count} dispense rows")
+
+    blobs = list(gcp.bucket.list_blobs(prefix=profiles_prefix(gcp.cfg, serial)))
+    for blob in blobs:
+        blob.delete()
+    print(f"  deleted {len(blobs)} profile objects")
+    return 0
+
+
 def main():
     """
-    Check the database and bucket in an env file can be reached, without leaving anything behind.
+    Check the database and bucket in an env file can be reached, without leaving anything behind. Or show or
+    delete what's stored for one pump.
 
-        python gcp_writer.py cred.env
+        python gcp_writer.py cred.env [--show SERIAL | --delete SERIAL]
     """
+    parser = argparse.ArgumentParser(description="Check, show or clean up the cloud database and bucket.")
+    parser.add_argument("env", help="env file, such as cred.env")
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument("--show", metavar="SERIAL", help="list the rows and profiles stored for this pump")
+    action.add_argument("--delete", metavar="SERIAL", help="delete the rows and profiles stored for this pump")
+    args = parser.parse_args()
+
+    cfg = GCPConfig.from_env(args.env)
+    print(f"  {cfg.instance} {cfg.db} as {cfg.user}, gs://{cfg.bucket_name}/{cfg.prefix}\n")
+    gcp = GCPConnection(cfg)
+    if args.show:
+        return show(gcp, args.show)
+    if args.delete:
+        return delete(gcp, args.delete)
+    return check(gcp)
+
+
+def check(gcp):
     # imported here so the writer itself never depends on the records
     from render import DispenseRecord, PumpRecord
 
-    if len(sys.argv) != 2:
-        print("usage: python gcp_writer.py <env file>")
-        return 2
-    cfg = GCPConfig.from_env(sys.argv[1])
-    print(f"  {cfg.instance} {cfg.db} as {cfg.user}, gs://{cfg.bucket_name}/{cfg.prefix}")
-
-    gcp = GCPConnection(cfg)
+    cfg = gcp.cfg
     writer = GCPDBWriter(gcp)
     failed = False
 
@@ -250,7 +329,7 @@ def main():
     tables = {}
     for table, column, data_type, nullable, has_default in cur.fetchall():
         # only the tables we write get their types, the rest would just be noise
-        if table in (PUMP_TABLE, DISPENSE_TABLE):
+        if table in (PumpRecord.TABLE, DispenseRecord.TABLE):
             column = f"{column} {data_type}"
             # a column we must always fill, the database won't accept the row without it
             if nullable == "NO" and not has_default:
@@ -274,14 +353,14 @@ def main():
     print("\n * row fit, rolled back\n")
     cur = gcp.connection.cursor()
     try:
-        for table, record in [(PUMP_TABLE, PumpRecord(serial_number=TEST_SERIAL)),
-                              (DISPENSE_TABLE, DispenseRecord(serial_number=TEST_SERIAL, cycle_number=0,
-                                                              triggered_at=TEST_TIME, recorded_at=TEST_TIME,
-                                                              problems=["test"], blank_traces=[1],
-                                                              repairs=[{"trace": 1, "byte": 2, "bit": 7}]))]:
+        for record in [PumpRecord(serial_number=TEST_SERIAL),
+                       DispenseRecord(serial_number=TEST_SERIAL, cycle_number=0,
+                                      triggered_at=TEST_TIME, recorded_at=TEST_TIME,
+                                      problems=["test"], blank_traces=[1],
+                                      repairs=[{"trace": 1, "byte": 2, "bit": 7}])]:
             for attempt in ("insert", "update"):
-                writer.upsert(cur, table, asdict(record))
-                print(f"  {table} {attempt} OK")
+                writer.upsert(cur, record.TABLE, asdict(record), record.KEYS)
+                print(f"  {record.TABLE} {attempt} OK")
     except Exception as error:
         print(f"  FAILED, {type(error).__name__}: {error}")
         failed = True

@@ -15,7 +15,7 @@ import re
 
 import pandas as pd
 
-from writer_base import TABLE_KEYS, DBWriter
+from writer_base import DBWriter
 
 TABLES_DIR_NAME = "tables"
 OBJECTS_DIR_NAME = "objects"
@@ -58,8 +58,8 @@ def comms_dir(out, run_time, address):
     return os.path.join(run_dir(out, run_time), COMMS_DIR_NAME, safe_name(address))
 
 
-def row_path(out, table, key):
-    name = KEY_SEPARATOR.join(safe_name(key[column]) for column in TABLE_KEYS[table])
+def row_path(out, table, row, keys):
+    name = KEY_SEPARATOR.join(safe_name(row[column]) for column in keys)
     return os.path.join(out, TABLES_DIR_NAME, table, name + ROW_EXTENSION)
 
 
@@ -104,8 +104,8 @@ class FileDBWriter(DBWriter):
     def __init__(self, out):
         self.out = out
 
-    def write_row(self, table: str, row: dict):
-        path = row_path(self.out, table, row)
+    def write_row(self, table: str, row: dict, keys: list):
+        path = row_path(self.out, table, row, keys)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         write_json(path, row)
 

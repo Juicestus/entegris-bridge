@@ -2,20 +2,23 @@
 Turn a capture into the outputs: the profile, the dispense row and the pump row. Reads only what it's given, never
 a pump, so a capture saved to disk can be rendered again later, after a schema or decoder change.
 
-    python render.py <capture directory>
+    python render.py <capture directory> [--out OUT] [--env cred.env]
 """
 
+import argparse
 import os
 import struct
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from typing import ClassVar
 
 from capture import Capture
 from file_writer import CollectedCycles, FileDBWriter
 from profile_decode import decode, profile_frame
+from pump_config import PumpAddress
 from pump_structs import COMPRESSED_ENCODING, ENCODING_MASK, PROFILE_TYPE_SHIFT, WORD_LEN
-from writer_base import DISPENSE_TABLE, PUMP_TABLE, DBWriter
+from writer_base import DBWriter
 
 # increment whenever there is a change that impacts the trace decode/csv
 DECODER_VERSION = 3
@@ -31,6 +34,9 @@ PROFILES_PATH = "profiles"
 # shows the gap rather than leaving the column out
 @dataclass
 class PumpRecord:
+    TABLE: ClassVar[str] = "pump"
+    KEYS: ClassVar[list] = ["serial_number"]      # the columns that pick out one row
+
     pump_id: int = None                 # assigned by the database
     serial_number: str = None
     pump_name: str = None
@@ -55,11 +61,14 @@ class PumpRecord:
     problems: list = field(default_factory=list)
 
     def write(self, writer: DBWriter):
-        writer.write_row(PUMP_TABLE, asdict(self))
+        writer.write_row(self.TABLE, asdict(self), self.KEYS)
 
 
 @dataclass
 class DispenseRecord:
+    TABLE: ClassVar[str] = "dispense"
+    KEYS: ClassVar[list] = ["serial_number", "cycle_number"]
+
     dispense_id: int = None             # assigned by the database
     pump_id: int = None                 # assigned by the database, serial_number below says which pump
     cycle_number: int = None
@@ -101,7 +110,7 @@ class DispenseRecord:
     problems: list = field(default_factory=list)
 
     def write(self, writer: DBWriter):
-        writer.write_row(DISPENSE_TABLE, asdict(self))
+        writer.write_row(self.TABLE, asdict(self), self.KEYS)
 
 
 def iso_time(unix_seconds):
@@ -305,16 +314,31 @@ def write_pump(pump, address, writers):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("usage: python render.py <capture directory>")
-        return 2
-    directory = os.path.abspath(sys.argv[1])
+    parser = argparse.ArgumentParser(description="Render a saved capture again, with no pump.")
+    parser.add_argument("capture", help="capture directory")
+    parser.add_argument("--out", help="where outputs go, by default the output folder the capture sits in")
+    parser.add_argument("--env", help="also push to the cloud database and bucket this env file names")
+    args = parser.parse_args()
+
+    directory = os.path.abspath(args.capture)
     capture = Capture.read_raw(directory)
 
-    out = directory                 # see file_writer.py header for format
-    for _ in range("<out>/captures/<serial>/<cycle>/<run time>".count("/")):
-        out = os.path.dirname(out)
-    record, written = render(capture, [FileDBWriter(out)], CollectedCycles(out, capture.pump.serial))
+    out = args.out
+    if out is None:
+        out = directory                 # see file_writer.py header for format
+        for _ in range("<out>/captures/<serial>/<cycle>/<run time>".count("/")):
+            out = os.path.dirname(out)
+    writers = [FileDBWriter(out)]
+
+    if args.env:
+        # imported only here, so rendering to files doesn't need the cloud packages installed
+        from gcp_writer import GCPConfig, GCPConnection, GCPDBWriter
+        writers.append(GCPDBWriter(GCPConnection(GCPConfig.from_env(args.env))))
+        # the database links each dispense to its pump row, which may not be there yet. this is the pump as it
+        # was when the capture was taken, so it can roll back newer details a later run saved
+        write_pump(capture.pump, PumpAddress.parse(capture.address), writers)
+
+    record, written = render(capture, writers, CollectedCycles(out, capture.pump.serial))
 
     state = "written" if written else "kept the cleaner one already there"
     print(f"  {capture.pump.serial} {capture.cycle}, {state}")
