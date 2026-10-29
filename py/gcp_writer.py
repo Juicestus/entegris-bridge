@@ -106,7 +106,6 @@ class GCPDBWriter(DBWriter):
         self.retries = retries
         self.pump_ids = {}          # serial number to pump_id, so each pump is looked up once
         self.column_types = {}      # table to {column: type}, read from the database once
-        self.unique_keys = {}       # table to the column sets it has a unique constraint on, read once
 
     @staticmethod
     def _ident(name: str) -> str:
@@ -121,16 +120,6 @@ class GCPDBWriter(DBWriter):
                         "WHERE table_schema = 'public' AND table_name = %s", (table,))
             self.column_types[table] = dict(cur.fetchall())
         return self.column_types[table]
-
-    def has_unique(self, cur, table, keys):
-        if table not in self.unique_keys:
-            cur.execute("SELECT string_agg(kcu.column_name, ',') FROM information_schema.table_constraints tc "
-                        "JOIN information_schema.key_column_usage kcu ON tc.constraint_name = kcu.constraint_name "
-                        "AND tc.table_schema = kcu.table_schema WHERE tc.table_schema = 'public' "
-                        "AND tc.table_name = %s AND tc.constraint_type IN ('PRIMARY KEY', 'UNIQUE') "
-                        "GROUP BY tc.constraint_name", (table,))
-            self.unique_keys[table] = [set(columns.split(",")) for (columns,) in cur.fetchall()]
-        return set(keys) in self.unique_keys[table]
 
     def pump_id(self, cur, serial):
         if serial not in self.pump_ids:
@@ -162,35 +151,12 @@ class GCPDBWriter(DBWriter):
         Insert the row, or update the one with the same key. Doesn't commit, so the caller decides.
         """
         row, keys = self.prepare(cur, table, row, keys)
-        if not self.has_unique(cur, table, keys):
-            self.update_or_insert(cur, table, row, keys)
-            return
-
         cols = ", ".join(self._ident(c) for c in row)
         placeholders = ", ".join(["%s"] * len(row))
         updates = ", ".join(f"{self._ident(c)} = EXCLUDED.{self._ident(c)}" for c in row if c not in keys)
         cur.execute(f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders}) "
                     f"ON CONFLICT ({', '.join(self._ident(c) for c in keys)}) DO UPDATE SET {updates}",
                     tuple(row.values()))
-
-    def update_or_insert(self, cur, table, row, keys):
-        """
-        The upsert for a table with no unique constraint on its key, which ON CONFLICT needs. Safe while only one
-        bridge writes each pump, two writing the same row at the same moment could both insert.
-        TODO: dispense is the only one, until the database has UNIQUE (pump_id, cycle_number) on it. this goes
-        once nothing needs it
-        """
-        values = [c for c in row if c not in keys]
-        sets = ", ".join(f"{self._ident(c)} = %s" for c in values)
-        matches = " AND ".join(f"{self._ident(c)} = %s" for c in keys)
-        cur.execute(f"UPDATE {self._ident(table)} SET {sets} WHERE {matches}",
-                    tuple(row[c] for c in values) + tuple(row[c] for c in keys))
-        if cur.rowcount > 0:
-            return
-
-        cols = ", ".join(self._ident(c) for c in row)
-        placeholders = ", ".join(["%s"] * len(row))
-        cur.execute(f"INSERT INTO {self._ident(table)} ({cols}) VALUES ({placeholders})", tuple(row.values()))
 
     def write_row(self, table: str, row: dict, keys: list):
         for attempt in range(self.retries + 1):
@@ -320,10 +286,13 @@ def check(gcp):
     writer = GCPDBWriter(gcp)
     failed = False
 
-    print("\n * database\n")
+    print("\nVersion\n")
     cur = gcp.connection.cursor()
     cur.execute("SELECT version()")
     print(f"  {cur.fetchone()[0]}")
+
+    print("\nTables\n")
+
     cur.execute("SELECT table_name, column_name, data_type, is_nullable, column_default IS NOT NULL "
                 "FROM information_schema.columns WHERE table_schema = 'public' ORDER BY table_name, ordinal_position")
     tables = {}
@@ -338,7 +307,7 @@ def check(gcp):
     for table, columns in tables.items():
         print(f"  {table}: {', '.join(columns)}")
 
-    print("\n * keys\n")
+    print("\nKeys\n")
     cur.execute("SELECT tc.table_name, tc.constraint_type, "
                 "string_agg(kcu.column_name, ', ' ORDER BY kcu.ordinal_position) "
                 "FROM information_schema.table_constraints tc JOIN information_schema.key_column_usage kcu "
@@ -350,7 +319,7 @@ def check(gcp):
     cur.close()
 
     # both written the way the bridge writes them, twice so the update path runs too, then all rolled back
-    print("\n * row fit, rolled back\n")
+    print("\nTest Upsert\n")
     cur = gcp.connection.cursor()
     try:
         for record in [PumpRecord(serial_number=TEST_SERIAL),
@@ -368,7 +337,7 @@ def check(gcp):
         gcp.connection.rollback()
         cur.close()
 
-    print("\n * bucket\n")
+    print("\nBucket\n")
     frame = pd.DataFrame({"a": [1, 2, 3], "b": [0.5, 1.5, 2.5]})
     try:
         uri = writer.write_obj(TEST_PATH, frame)
@@ -383,7 +352,7 @@ def check(gcp):
         print(f"  FAILED, {type(error).__name__}: {error}")
         failed = True
 
-    print("\n  FAILED" if failed else "\n  PASSED")
+    print("\nFAILED" if failed else "\nPASSED")
     return 1 if failed else 0
 
 
