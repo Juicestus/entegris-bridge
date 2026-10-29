@@ -10,29 +10,31 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 
-import output
-from capture import Capture, write_json
+import file_writer
+from capture import Capture
 from comms_log import CommsLog
+from file_writer import CollectedCycles, FileDBWriter, write_json
 from ncs_client import NCSClient, NCSError
 from profile_pull import pull_profile
 from pump_client import PumpClient, PumpError
 from pump_config import load_config
 from pump_reader import read_dispense_cycle, read_dispense_header, read_newest_cycle, read_pump_info, read_profile_info
-from render import render, write_pump
+from render import WriteError, already_clean, render, write_pump
 
 # the pump keeps this many profiles, the newest and the ones before it
 HELD_CYCLES = 3
 
-SAVE_OUTPUTS = 0        # only pump.json, dispense.json and trace.csv
+SAVE_OUTPUTS = 0        # only the rows and profiles
 SAVE_CAPTURE = 1        # also the raw capture, enough to render again or look into a failure
 SAVE_COMMS = 2          # also every request and reply sent to the NCS
 
 
 @dataclass
 class Options:
-    out: str
+    out: str                # raw captures, comms logs and run.json always go here
     save: int
     run_time: str
+    writers: list           # every destination gets its own copy of every row and profile
 
 
 @dataclass
@@ -125,7 +127,7 @@ def extract_pump(config, options):
         pump_info = read_pump_info(pump)
         result.serial = pump_info.serial
         result.problems += pump_info.problems
-        write_pump(pump_info, address, options.out)
+        write_pump(pump_info, address, options.writers)
         print(f"  {pump_info.serial}")
         for problem in pump_info.problems:
             print(f"  ! {problem}")
@@ -134,9 +136,10 @@ def extract_pump(config, options):
         if newest is None:
             raise PumpError("no profile cycle from CS_RTSTATUS or RTSTATUS")
         header = read_dispense_header(pump)
+        collected = CollectedCycles(options.out, pump_info.serial)
 
         for cycle in range(newest, max(newest - HELD_CYCLES, -1), -1):
-            if output.already_clean(options.out, pump_info.serial, cycle):
+            if already_clean(collected, cycle):
                 cycle_result = CycleResult(cycle, "already collected", newest - cycle)
                 result.cycles.append(cycle_result)
                 print(cycle_line(cycle_result))
@@ -149,8 +152,8 @@ def extract_pump(config, options):
                 continue
 
             if options.save >= SAVE_CAPTURE:
-                capture.write_raw(output.capture_dir(options.out, pump_info.serial, cycle, options.run_time))
-            record, written = render(capture, options.out)
+                capture.write_raw(file_writer.capture_dir(options.out, pump_info.serial, cycle, options.run_time))
+            record, written = render(capture, options.writers, collected)
 
             state = "OK"
             if record.blank_traces:
@@ -166,14 +169,14 @@ def extract_pump(config, options):
             result.cycles.append(cycle_result)
             print(cycle_line(cycle_result))
 
-    except (NCSError, PumpError) as error:
+    except (NCSError, PumpError, WriteError) as error:
         result.error = f"{type(error).__name__}: {error}"
     except Exception as error:
         # anything at all, one pump going wrong must never stop the pumps after it
         result.error = f"unexpected {type(error).__name__}: {error}"
     finally:
         if log is not None:
-            log.write(output.comms_dir(options.out, options.run_time, address))
+            log.write(file_writer.comms_dir(options.out, options.run_time, address))
 
     if result.error is not None:
         print(f"  FAILED, {result.error}")
@@ -193,21 +196,21 @@ def main():
     except (OSError, ValueError) as error:
         print(f"  config: {error}")
         return 2
-    options = Options(args.out, args.save, time.strftime(output.RUN_TIME_FORMAT))
+    options = Options(args.out, args.save, time.strftime(file_writer.RUN_TIME_FORMAT), [FileDBWriter(args.out)])
 
     results = []
     for group in bus_groups(configs):
         for config in group:
             results.append(extract_pump(config, options))
 
-    run_dir = output.run_dir(options.out, options.run_time)
+    run_dir = file_writer.run_dir(options.out, options.run_time)
     os.makedirs(run_dir, exist_ok=True)
-    write_json(os.path.join(run_dir, output.RUN_FILE_NAME),
+    write_json(os.path.join(run_dir, file_writer.RUN_FILE_NAME),
                {"run_time": options.run_time, "save": options.save, "pumps": [asdict(r) for r in results]})
 
     failed = [result for result in results if result.error is not None]
     print(f"\n  {len(results) - len(failed)} of {len(results)} pumps done")
-    print(f"  {os.path.join(run_dir, output.RUN_FILE_NAME)}")
+    print(f"  {os.path.join(run_dir, file_writer.RUN_FILE_NAME)}")
     return 1 if failed else 0
 
 

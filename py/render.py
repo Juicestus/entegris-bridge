@@ -1,6 +1,6 @@
 """
-Turn a capture into the outputs: trace.csv, dispense.json and pump.json. Reads only what it's given, never a pump,
-so a capture saved to disk can be rendered again later, after a schema or decoder change.
+Turn a capture into the outputs: the profile, the dispense row and the pump row. Reads only what it's given, never
+a pump, so a capture saved to disk can be rendered again later, after a schema or decoder change.
 
     python render.py <capture directory>
 """
@@ -11,18 +11,19 @@ import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
-import output
-from capture import Capture, write_json
-from profile_decode import decode, write_csv
+from capture import Capture
+from file_writer import CollectedCycles, FileDBWriter
+from profile_decode import decode, profile_frame
 from pump_structs import COMPRESSED_ENCODING, ENCODING_MASK, PROFILE_TYPE_SHIFT, WORD_LEN
+from writer_base import DISPENSE_TABLE, PUMP_TABLE, DBWriter
 
-# goes up whenever a change to decoding could change a CSV, so rows from before and after can be told apart
-DECODER_VERSION = 1
+# increment whenever there is a change that impacts the trace decode/csv
+DECODER_VERSION = 3
 
 CPSI_PER_PSI = 100
 ML_X1000_PER_ML = 1000
-# a capture sits at <out>/<serial>/<cycle>/captures/<run time>
-CAPTURE_DEPTH = 4
+PROFILES_PATH = "profiles"
+
 
 
 # rows shaped like the database's pump and dispense tables, which another team owns. each lists the table's columns
@@ -53,6 +54,9 @@ class PumpRecord:
     pump_clock_offset_sec: float = None     # pump clock minus host clock when read, nothing syncs pump clocks
     problems: list = field(default_factory=list)
 
+    def write(self, writer: DBWriter):
+        writer.write_row(PUMP_TABLE, asdict(self))
+
 
 @dataclass
 class DispenseRecord:
@@ -69,7 +73,7 @@ class DispenseRecord:
 
     # extras
     serial_number: str = None
-    trace_object_uri: str = None        # the waveform CSV, a local path until there's object storage
+    trace_object_uri: str = None        # where the writer put the profile
     sample_count: int = None            # differs from cycle to cycle
     start_of_cycle_sample: int = None   # the sample at the trigger, time zero in the CSV
     dispense_end_sample: int = None
@@ -95,6 +99,9 @@ class DispenseRecord:
     failed_chunks: int = 0
     decoder_version: int = None
     problems: list = field(default_factory=list)
+
+    def write(self, writer: DBWriter):
+        writer.write_row(DISPENSE_TABLE, asdict(self))
 
 
 def iso_time(unix_seconds):
@@ -166,7 +173,7 @@ def pump_record(pump, address):
     )
 
 
-def dispense_record(capture, decoded, notes, trace_uri):
+def dispense_record(capture, decoded, notes):
     """
     The dispense row for a capture. Fields only DISPENSE_INFO and its neighbors can give stay empty when the
     capture has no header for its cycle.
@@ -179,7 +186,6 @@ def dispense_record(capture, decoded, notes, trace_uri):
         sample_interval_ms=info.sample_interval,
         recorded_at=iso_time(capture.collected_at),
         serial_number=capture.pump.serial,
-        trace_object_uri=trace_uri,
         sample_count=info.unencoded_size,
         start_of_cycle_sample=info.start_cycle,
         dispense_end_sample=info.dispense_end,
@@ -230,32 +236,71 @@ def dispense_record(capture, decoded, notes, trace_uri):
     return record
 
 
-def render(capture, out):
-    """
-    Write trace.csv and dispense.json for a capture. A clean result never gets replaced by a worse one of the
-    same cycle. Returns the dispense row and whether it was written.
-    """
-    directory = output.cycle_dir(out, capture.pump.serial, capture.cycle)
-    trace_path = os.path.join(directory, output.TRACE_FILE_NAME)
-    decoded, notes = decode_traces(capture)
-    trace_uri = os.path.relpath(trace_path, out).replace(os.sep, "/")
-    record = dispense_record(capture, decoded, notes, trace_uri)
+def profile_path(serial, cycle):
+    return f"{PROFILES_PATH}/{serial}/{cycle}"
 
-    saved = output.read_dispense(out, capture.pump.serial, capture.cycle)
-    if saved is not None and output.flaws(saved) < output.flaws(asdict(record)):
+
+def flaws(dispense):
+    """
+    How far a dispense row is from clean, for comparing two collections of one cycle. Lower is better.
+    """
+    return len(dispense["blank_traces"]), dispense["reconstructed"]
+
+
+def already_clean(collected, cycle):
+    saved = collected.get(cycle)
+    return saved is not None and flaws(saved) == (0, False)
+
+
+class WriteError(Exception):
+    pass
+
+
+def write_failure(writer, error):
+    return f"{type(writer).__name__}: {type(error).__name__}: {error}"
+
+
+def render(capture, writers, collected):
+    """
+    Store the profile and the dispense row for a capture. A clean result never gets replaced by a worse one of
+    the same cycle, going by what collected remembers for this pump. Returns the dispense row and whether it was
+    written.
+    """
+    decoded, notes = decode_traces(capture)
+    record = dispense_record(capture, decoded, notes)
+
+    saved = collected.get(capture.cycle)
+    if saved is not None and flaws(saved) < flaws(asdict(record)):
         return record, False
 
-    os.makedirs(directory, exist_ok=True)
-    info = asdict(capture.info)
-    write_csv(trace_path, info, decoded)
-    write_json(os.path.join(directory, output.DISPENSE_FILE_NAME), asdict(record))
+    # each writer gets the profile first, so its row never points at a profile that isn't there, and links to its
+    # own copy. one writer failing doesn't stop the others, but the cycle is only remembered once all of them
+    # worked, so the next run tries again
+    frame = profile_frame(asdict(capture.info), decoded)
+    failures = []
+    for writer in writers:
+        try:
+            record.trace_object_uri = writer.write_obj(profile_path(capture.pump.serial, capture.cycle), frame)
+            record.write(writer)
+        except Exception as error:
+            failures.append(write_failure(writer, error))
+    if failures:
+        raise WriteError("; ".join(failures))
+
+    collected.set(capture.cycle, record.blank_traces, record.reconstructed)
     return record, True
 
 
-def write_pump(pump, address, out):
+def write_pump(pump, address, writers):
     record = pump_record(pump, address)
-    os.makedirs(output.pump_dir(out, pump.serial), exist_ok=True)
-    write_json(os.path.join(output.pump_dir(out, pump.serial), output.PUMP_FILE_NAME), asdict(record))
+    failures = []
+    for writer in writers:
+        try:
+            record.write(writer)
+        except Exception as error:
+            failures.append(write_failure(writer, error))
+    if failures:
+        raise WriteError("; ".join(failures))
     return record
 
 
@@ -266,10 +311,10 @@ def main():
     directory = os.path.abspath(sys.argv[1])
     capture = Capture.read_raw(directory)
 
-    out = directory
-    for level in range(CAPTURE_DEPTH):
+    out = directory                 # see file_writer.py header for format
+    for _ in range("<out>/captures/<serial>/<cycle>/<run time>".count("/")):
         out = os.path.dirname(out)
-    record, written = render(capture, out)
+    record, written = render(capture, [FileDBWriter(out)], CollectedCycles(out, capture.pump.serial))
 
     state = "written" if written else "kept the cleaner one already there"
     print(f"  {capture.pump.serial} {capture.cycle}, {state}")

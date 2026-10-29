@@ -7,6 +7,7 @@ import json
 import os
 from dataclasses import asdict, dataclass
 
+from file_writer import write_json
 from profile_pull import ChunkRecord, Repair, TracePull
 from pump_reader import DispenseHeader, PumpInfo
 from pump_structs import ProfileTraceInfo
@@ -118,9 +119,3 @@ class Capture:
             header=header,
             header_problem=saved["header_problem"],
         )
-
-
-def write_json(path, value):
-    with open(path, "w") as file:
-        json.dump(value, file, indent=4)
-        file.write("\n")

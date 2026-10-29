@@ -22,12 +22,9 @@ from pump_structs import (
     profile_info_request,
 )
 
-# the pump answers one command at a time on a shared bus, so commands are spaced out
 COMMAND_GAP_SEC = 0.2
-# after a read timeout the pump can still be finishing the lost reply, so the next command waits it out
 TIMEOUT_RECOVERY_SEC = 10
 
-# read together in one request, falling back to one at a time if the pump doesn't know one of them
 NAME_SVIDS = {
     "firmware_string": 11,
     "customer_name": 12,
@@ -40,7 +37,6 @@ NAME_SVIDS = {
     "fluid_name": 19,
     "pump_time": 1025,
 }
-# these describe the most recent dispense only, like DISPENSE_INFO itself
 DISPENSE_SVIDS = {
     "recipe_title": 20,
     "confirmation_pct": 849,
@@ -63,14 +59,14 @@ def paced(read, *args):
 
 @dataclass
 class PumpInfo:
-    serial: str                         # SERIALNUMBERS, the one outputs are filed under
-    serial_from_status: str = None      # CS_RTSTATUS, a second source that should agree
+    serial: str                                     
+    serial_from_status: str = None      
     model: str = None
     firmware: str = None
     module_type: int = None
-    names: dict = field(default_factory=dict)     # every NAME_SVIDS entry, None where the pump didn't give one
-    read_at: float = None               # host clock, unix seconds
-    problems: list = field(default_factory=list)  # reads that failed, kept so a gap can be explained
+    names: dict = field(default_factory=dict)       
+    read_at: float = None                           
+    problems: list = field(default_factory=list)    
 
     def clock_offset_sec(self):
         """
@@ -97,8 +93,8 @@ class DispenseHeader:
     reference_ready_pressure_cpsi: int = None
     recipe_title: str = None
     confirmation_pct: int = None
-    volume_setpoint_ul: int = None      # RTSTATUS, appears to be the volume asked for
-    volume_measured_ml_x1000: int = None    # LAST_DIS_INFO_2, appears to be the volume measured
+    volume_setpoint_ul: int = None              # RTSTATUS, appears to be the volume asked for
+    volume_measured_ml_x1000: int = None        # LAST_DIS_INFO_2, appears to be the volume measured
     read_at: float = None
     problems: list = field(default_factory=list)
 

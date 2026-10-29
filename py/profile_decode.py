@@ -1,6 +1,6 @@
 """
-Decode compressed profile traces and write them as a CSV shaped like the vendor's profile export. The decoder is
-ported from the reference C the vendor supplies.
+Decode compressed profile traces into a table with one column per trace, titled and scaled like the vendor's profile
+export. The decoder is ported from the reference C the vendor supplies.
 
 Run on its own, this decodes a capture directory with no NCS and no pump:
 
@@ -13,6 +13,8 @@ import struct
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+import pandas as pd
 
 from capture import INFO_FILE_NAME, trace_file_name
 from pump_structs import COMPRESSED_ENCODING, ENCODING_MASK, PROFILE_TRACE_NAMES, WORD_LEN
@@ -131,6 +133,10 @@ def decode(encoded, max_samples, notes=None):
 MS_PER_SEC = 1000
 TIME_DECIMALS = 3
 
+# the vendor's export puts the profile info above the column titles. off, the file is a plain table and the profile
+# info lives only in the dispense row
+INCLUDE_HEADER = False
+
 
 @dataclass
 class TraceColumn:
@@ -169,12 +175,16 @@ def scaled_text(raw, column):
     return f"{value / column.scale:.{column.decimals}f}"
 
 
-def seconds_text(sample, info):
+def seconds_value(sample, info):
     """
     Time of a sample relative to the dispense trigger, which comes after a stretch of recording before it.
     """
     ms = (sample - info["start_cycle"]) * info["sample_interval"]
-    return f"{ms / MS_PER_SEC:.{TIME_DECIMALS}f}"
+    return round(ms / MS_PER_SEC, TIME_DECIMALS)
+
+
+def seconds_text(sample, info):
+    return f"{seconds_value(sample, info):.{TIME_DECIMALS}f}"
 
 
 def header_lines(info, missing):
@@ -206,27 +216,41 @@ def header_lines(info, missing):
     return lines
 
 
-def write_csv(path, info, decoded):
+def scaled_value(raw, column):
+    value = raw
+    if column.signed:
+        value = to_signed(raw)
+    if column.scale == 1:
+        return value
+    return round(value / column.scale, column.decimals)
+
+
+def profile_frame(info, decoded):
     """
-    Write the header, the column titles and one row per sample, leaving a trace that didn't decode blank.
+    One row per sample and one column per trace, leaving a trace that didn't decode empty.
+    """
+    sample_count = info["unencoded_size"]
+    columns = {
+        TIME_TITLE: [seconds_value(sample, info) for sample in range(sample_count)],
+    }
+    for trace, column in enumerate(TRACE_COLUMNS):
+        if decoded[trace] is None:
+            columns[column.title] = [None] * sample_count
+        else:
+            columns[column.title] = [scaled_value(raw, column) for raw in decoded[trace]]
+    return pd.DataFrame(columns)
+
+
+def write_csv(path, info, decoded, include_header=INCLUDE_HEADER):
+    """
+    The profile as a CSV. With the header, the profile info sits above the column titles like the vendor's export.
     """
     missing = [trace for trace in range(len(TRACE_COLUMNS)) if decoded[trace] is None]
-    titles = [TIME_TITLE] + [column.title for column in TRACE_COLUMNS]
-
-    with open(path, "w") as file:
-        for line in header_lines(info, missing):
-            file.write(line + "\n")
-        # the vendor's title row ends with a comma and its data rows don't
-        file.write(",".join(f'"{title}"' for title in titles) + ",\n")
-
-        for sample in range(info["unencoded_size"]):
-            cells = [seconds_text(sample, info)]
-            for trace, column in enumerate(TRACE_COLUMNS):
-                if decoded[trace] is None:
-                    cells.append("")
-                else:
-                    cells.append(scaled_text(decoded[trace][sample], column))
-            file.write(",".join(cells) + "\n")
+    with open(path, "w", newline="") as file:
+        if include_header:
+            for line in header_lines(info, missing):
+                file.write(line + "\n")
+        profile_frame(info, decoded).to_csv(file, index=False, lineterminator="\n")
 
 
 def decode_trace(directory, trace, info):
