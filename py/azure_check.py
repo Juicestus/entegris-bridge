@@ -45,7 +45,10 @@ PG_BAD_PASSWORD = "28P01"
 PG_NOT_ALLOWED = "28000"
 # what Azure Storage answers when its own firewall turns the request away
 STORAGE_NOT_ALLOWED = "AuthorizationFailure"
-NOT_THE_NETWORK = "this is a setting on our side, not the SkyWater network"
+# what kind of problem a hint points at, so whoever reads it knows who to take it to
+NETWORK = "network"
+SETTINGS = "settings"
+MACHINE = "machine"
 
 
 class Failure(Exception):
@@ -99,7 +102,7 @@ def check_proxy():
     proxies = urllib.request.getproxies()
     if proxies:
         raise Failure(", ".join(f"{scheme} {url}" for scheme, url in proxies.items()),
-                      "this machine is set to use a proxy, the database connection can't go through one")
+                      f"{MACHINE}: it's set to use a proxy, the database connection can't go through one")
     return "none"
 
 
@@ -111,7 +114,8 @@ def check_clock(url):
         response = error    # any answer carries the server's time
     skew = time.time() - email.utils.parsedate_to_datetime(response.headers["Date"]).timestamp()
     if abs(skew) > MAX_CLOCK_SKEW_SEC:
-        raise Failure(f"{skew:+.0f}s off the server's time", "this machine's clock is wrong, the cloud refuses sign in")
+        raise Failure(f"{skew:+.0f}s off the server's time",
+                      f"{MACHINE}: its clock looks wrong, the cloud can refuse sign in because of it")
     return f"{skew:+.0f}s"
 
 
@@ -123,13 +127,14 @@ def check_host(host, port, postgres=False):
     try:
         ip = socket.gethostbyname(host)
     except OSError as error:
-        raise Failure(f"name lookup failed, {error}", f"the network's DNS can't find {host}") from error
+        raise Failure(f"name lookup failed, {error}", f"{NETWORK}: its DNS can't find {host}") from error
 
     try:
         sock = socket.create_connection((ip, port), timeout=TIMEOUT_SEC)
     except OSError as error:
         raise Failure(f"{ip}:{port} can't connect, {error}",
-                      f"port {port} to {ip} is blocked, by this network or by a firewall in front of the server") \
+                      f"{NETWORK}: port {port} to {ip} seems blocked, by this network or by a firewall in front of the "
+                      f"server") \
             from error
 
     with sock:
@@ -143,13 +148,13 @@ def check_host(host, port, postgres=False):
                 version = tls.version()
         except OSError as error:
             raise Failure(f"{ip}:{port} connects, TLS cut off, {type(error).__name__}: {error}",
-                          f"the network lets {ip}:{port} connect but cuts the TLS, it needs allowing "
+                          f"{NETWORK}: {ip}:{port} connects but the TLS gets cut, it likely needs allowing "
                           f"without TLS inspection") from error
 
     name = issuer(der)
     if not any(expected in name for expected in AZURE_ISSUERS):
         raise Failure(f"{ip}:{port} {version}, certificate from {name}",
-                      f"{name} on the network is inspecting TLS to {host}, it needs a decryption bypass")
+                      f"{NETWORK}: {name} seems to be inspecting TLS to {host}, it likely needs a decryption bypass")
     return f"{ip}:{port} {version}, certificate from {name}"
 
 
@@ -175,15 +180,15 @@ def check_container(cfg):
             container.delete_blob(name)
     except ClientAuthenticationError as error:
         raise Failure(first_line(error),
-                      f"the storage connection string in cred.env is wrong or its key was changed, {NOT_THE_NETWORK}") \
+                      f"{SETTINGS}: the storage connection string in cred.env looks wrong, or its key was changed") \
             from error
     except ResourceNotFoundError as error:
-        raise Failure(first_line(error), f"there's no container {cfg.container}, {NOT_THE_NETWORK}") from error
+        raise Failure(first_line(error), f"{SETTINGS}: there's no container named {cfg.container}") from error
     except HttpResponseError as error:
         if error.error_code == STORAGE_NOT_ALLOWED:
             raise Failure(first_line(error),
-                          "the storage account's own firewall turns this site away, add the site's public IP in its "
-                          f"Networking settings, {NOT_THE_NETWORK}") from error
+                          f"{SETTINGS}: the storage account's own firewall seems to turn this site away, add the "
+                          "site's public IP in its Networking settings") from error
         raise
     if not same:
         raise ValueError(f"{uri} read back different")
@@ -198,11 +203,10 @@ def check_login(cfg, opened):
         fields = error.args[0] if error.args and isinstance(error.args[0], dict) else {}
         message = fields.get("M", first_line(error))
         if fields.get("C") == PG_BAD_PASSWORD:
-            raise Failure(message, f"the database user or password in cred.env is wrong, {NOT_THE_NETWORK}") \
-                from error
+            raise Failure(message, f"{SETTINGS}: the database user or password in cred.env looks wrong") from error
         if fields.get("C") == PG_NOT_ALLOWED:
-            raise Failure(message, "the database's own firewall turns this site away, add the site's public IP in "
-                                   f"the server's Networking settings, {NOT_THE_NETWORK}") from error
+            raise Failure(message, f"{SETTINGS}: the database's own firewall seems to turn this site away, add the "
+                                   "site's public IP in the server's Networking settings") from error
         raise Failure(message) from error
     return f"{cfg.db} as {cfg.user}"
 

@@ -1,0 +1,114 @@
+BRIDGE AZURE TEST
+
+Pumps at addresses 1, 2 and 4 on 10.25.85.52:8888 COM8, as listed in py/pumps.csv. Pump 2 is ML08333.
+Read-only on the pumps. Writes rows to the Azure dev database and profile CSVs to the Azure dev container.
+Run everything from the py folder.
+
+
+SETUP
+
+1. Latest code:                    git pull
+2. Python 3.9 or newer:            py --version
+3. Packages:                       py -m pip install -r requirements.txt       azure-storage-blob is new
+4. cred.env in py/                 the new one with the Azure settings, copied over securely, never by email or chat
+5. cred.json                       no longer used, delete it from py/
+6. pumps.csv in py/                lists the three pumps above
+
+
+STEP 1  AZURE CHECK, no pump involved
+
+  py azure_check.py
+
+Send the whole output whatever happens, it's what we take to IT.
+Good: every line OK, ends with PASSED. Leaves nothing behind in the database or the container.
+
+If it ends with FAILED, the lines at the bottom say what kind of problem each failure looks like:
+  network:    something between here and Azure, the timestamp on the failed line is what IT searches their logs by
+  settings:   cred.env or the Azure setup, send the output to Justus
+  machine:    this laptop's proxy or clock
+Then carry on with --nopush added to every bridge.py command below. Everything is still collected to files and can
+be uploaded later.
+
+The container line and the database lines are separate checks. Storage working while the database fails, or the
+other way round, is useful to know, note which.
+
+
+STEP 2  ONE RUN
+
+  py bridge.py --once --save 2
+
+Good, for ML08333:
+  2:10.25.85.52:8888:COM8
+    ML08333
+    <N> OK
+    <N-1> OK, no header, 1 behind
+    <N-2> OK, no header, 2 behind
+
+Addresses 1 and 4 either show a serial number and cycles the same way, or "FAILED, ... no serial number ...". The
+second just means there's no pump at that address, which is worth knowing too.
+Ends with "<n> of 3 pumps done".
+
+There's no command yet to list what reached Azure. Send the output and Justus checks the database.
+
+
+STEP 3  LEAVE IT RUNNING
+
+  py bridge.py --save 2
+
+Leave it 15 minutes, then Ctrl+C. It prints "stopped".
+Each pump is collected every 100 s. The pump dispenses about every 140 s, so most runs should show a new cycle OK
+and the rest "already collected". An address with no pump costs about 30 s per run, that's expected.
+
+
+GOOD SIGNS THAT LOOK LIKE PROBLEMS
+
+"N retries"                        the bus flipped a bit, the retry fixed it
+"RECONSTRUCTED, trace [x]"         a single bit error was repaired and flagged
+"no header" on N-1 and N-2         normal, the pump only describes its newest dispense
+"already collected"                normal, collected clean on an earlier run
+"kept the cleaner copy..."         normal, a worse copy didn't replace a better one
+
+
+IF YOU SEE
+
+"env: ..." and "--nopush to run with files only", exit before any pump line
+  The bridge couldn't reach Azure or read cred.env. Run step 1 to see why, then add --nopush.
+
+"FAILED, WriteError: PostgresDBWriter: ..." or "... AzureBlobStorageWriter: ..."
+  A write to Azure failed, the database or the container. Files are still saved and the cycle is tried again next
+  run. Copy the full line. If it repeats every run, stop and use --nopush.
+
+"FAILED, ... no serial number ... 1015" or "... 1006"
+  No pump answering at that address. Expected for an address with no pump. For pump 2, check the cable, the COM
+  port and the pump address in the MMI, try once more, and if it fails again stop and send py/out.
+
+"FAILED, NCSError ..." or connection refused / timed out
+  Can't reach the NCS box. Check the laptop is on the network and can ping 10.25.85.52.
+  Check nothing else (MMI, another script) is holding the connection.
+
+"FAILED, unexpected ..."
+  Our bug. Stop, copy the full terminal output, send py/out.
+
+"! GET_SVIDS ..." or "! SVID nn: ..." or "! serial numbers disagree"
+  Not a stopper, the run carries on. Note it.
+
+"<N> OK, no header" on the newest cycle
+  Usually the pump dispensed during the pull. Fine once. Note it if it keeps happening.
+
+"not held"
+  The pump no longer keeps that cycle. Fine for N-2. Bad if the newest cycle says it.
+
+"BLANK traces [..]"
+  A trace couldn't be pulled or repaired. The next run tries the cycle again and replaces it if it comes back clean.
+
+Python traceback before anything prints
+  Check you're in py/ and the setup steps, especially the pip install. Send the traceback.
+
+No output for more than 5 minutes during a run
+  Ctrl+C, send the output and py/out.
+
+
+SEND BACK
+
+py/out zipped, the terminal output of every step, anything noted above.
+Not cred.env.
