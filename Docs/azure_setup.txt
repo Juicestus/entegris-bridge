@@ -1,0 +1,133 @@
+AZURE SETUP
+
+A Postgres database and a blob container on Azure, made by us on our own account for testing. Tomorrow's test is
+about whether the SkyWater network can reach Azure, and that path is the same whoever owns the resources.
+Everything is done in the Azure portal, portal.azure.com. Use the same region for everything, the one nearest us,
+such as South Central US.
+
+Names below are suggestions. Whatever you pick, write it down, it goes in cred.env at the end.
+
+
+1. RESOURCE GROUP
+
+A folder that holds everything, so it can all be found, and deleted, in one place.
+
+  Search "Resource groups" > Create
+    Name     skywater-pump
+    Region   South Central US
+
+
+2. POSTGRES SERVER
+
+  Search "Azure Database for PostgreSQL flexible servers" > Create
+
+  Basics
+    Resource group           skywater-pump
+    Server name              skywater-pump-db         becomes skywater-pump-db.postgres.database.azure.com
+    Region                   same as above
+    PostgreSQL version       16 or newer
+    Workload type            Development
+    Compute + storage        Burstable, B1ms, 32 GiB, high availability off
+    Authentication           PostgreSQL authentication only
+    Admin username           skywateradmin            Azure refuses admin, root, postgres and anything starting pg_
+    Password                 a long random one, it goes in cred.env and nowhere else
+
+  Networking
+    Connectivity method      Public access (allowed IP addresses)
+    Firewall rules           click "Add current client IP address" so your own machine can connect
+                             and for the test day also click "Add 0.0.0.0 - 255.255.255.255"
+    Allow public access from any Azure service      off for now, Friday's REST API will need it on
+
+  Why the open rule: if the server's own firewall doesn't list the SkyWater site, the connection times out exactly
+  like the SkyWater network blocking it, and the test can't tell the two apart. The password still protects it.
+  Remove the rule after the test (step 7).
+
+  Review + create. It takes several minutes.
+
+  When it's done, open the server
+    Settings > Databases > Add
+    Name                     skywater_dev
+
+  Leave Server parameters alone, encrypted connections are required by default and the bridge expects that.
+
+
+3. TABLES
+
+The bridge writes into the tables the portal's Drizzle migrations make, it doesn't make them itself.
+
+  Run the portal's migrations against the new database, with the database URL set to
+    postgres://skywateradmin:<password>@skywater-pump-db.postgres.database.azure.com:5432/skywater_dev?sslmode=require
+
+  The dispense table needs a unique key on pump and cycle, or every dispense write fails. On GCP it was added by
+  hand, so check it's in the Drizzle schema. If it isn't, add it there, or run this once:
+    ALTER TABLE dispense ADD CONSTRAINT dispense_pump_cycle_key UNIQUE (pump_id, cycle_number);
+
+  Step 6 lists the keys, look for "dispense: UNIQUE (pump_id, cycle_number)".
+
+
+4. STORAGE ACCOUNT AND CONTAINER
+
+  Search "Storage accounts" > Create
+
+  Basics
+    Resource group           skywater-pump
+    Storage account name     skywaterpumpdata         lowercase letters and numbers only, must be unique in Azure
+    Region                   same as above
+    Primary service          Azure Blob Storage
+    Performance              Standard
+    Redundancy               LRS
+
+  Advanced and Networking    leave the defaults: secure transfer required, no anonymous blob access, public network
+                             access enabled from all networks
+
+  Review + create.
+
+  When it's done, open the storage account
+    Data storage > Containers > + Container
+    Name                     pump-data
+    Anonymous access level   Private
+
+  The connection string
+    Security + networking > Access keys > key1 > Connection string > Show > copy
+
+  This key opens the whole storage account, fine for a test account we own. For SkyWater's own account later, IT
+  will likely want a SAS limited to the one container, written as
+    BlobEndpoint=https://<account>.blob.core.windows.net/;SharedAccessSignature=<token>
+  The bridge takes either form, nothing else changes.
+
+
+5. CRED.ENV
+
+Add these lines to py/cred.env, under the GCP ones already there. The names don't clash, so both stay. They're the
+same names the portal's env file uses, so lines copied from there work as they are. cred.env is never committed,
+and gets to anyone else the same secure way as before, never by email or chat.
+
+  DATABASE_URL="postgresql://skywateradmin:<password>@skywater-pump-db.postgres.database.azure.com:5432/skywater_dev?sslmode=verify-full"
+  AZURE_STORAGE_CONNECTION_STRING="<the connection string from step 4>"
+  AZURE_STORAGE_CONTAINER=pump-data
+
+If the password has characters like @ : / # in it, they have to be URL encoded in DATABASE_URL, @ as %40 and so on.
+BLOB_PREFIX=dev/ can be added to put every blob under a dev/ folder, it isn't needed when the container is dev only.
+
+
+6. CHECK IT FROM HERE FIRST
+
+From the py folder:
+
+  py -m pip install -r requirements.txt       azure-storage-blob is new
+  py azure_check.py
+
+Good: every line OK, the Keys section has the dispense key from step 3, ends with PASSED.
+Leaves nothing behind in the database or the container.
+
+If it fails here, it's the setup, not a network, fix it before the test day. The hint lines at the bottom say where.
+"database login ... password authentication failed" means PG_USER or PG_PASSWORD is wrong.
+"database 5432 ... can't connect" from your own machine means step 2's firewall rule for your IP is missing.
+
+
+7. AFTER THE TEST DAY
+
+  Postgres server > Settings > Networking > delete the 0.0.0.0 - 255.255.255.255 rule
+  Postgres server > Overview > Stop, if it isn't needed for a while. Stopped, it doesn't use credit, and Azure
+  starts it again by itself after a week.
+  To remove everything: Resource groups > skywater-pump > Delete resource group.

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import ClassVar
 
 from capture import Capture
-from file_writer import CollectedCycles, FileDBWriter
+from file_writer import CollectedCycles, local_writer
 from profile_decode import decode, profile_frame
 from pump_config import PumpAddress
 from pump_structs import COMPRESSED_ENCODING, ENCODING_MASK, PROFILE_TYPE_SHIFT, WORD_LEN
@@ -289,10 +289,15 @@ def render(capture, writers, collected):
     failures = []
     for writer in writers:
         try:
-            record.trace_object_uri = writer.write_obj(profile_path(capture.pump.serial, capture.cycle), frame)
-            record.write(writer)
+            record.trace_object_uri = writer.storage_writer.write_obj(
+                profile_path(capture.pump.serial, capture.cycle), frame)
         except Exception as error:
-            failures.append(write_failure(writer, error))
+            failures.append(write_failure(writer.storage_writer, error))
+            continue
+        try:
+            record.write(writer.db_writer)
+        except Exception as error:
+            failures.append(write_failure(writer.db_writer, error))
     if failures:
         raise WriteError("; ".join(failures))
 
@@ -305,9 +310,9 @@ def write_pump(pump, address, writers):
     failures = []
     for writer in writers:
         try:
-            record.write(writer)
+            record.write(writer.db_writer)
         except Exception as error:
-            failures.append(write_failure(writer, error))
+            failures.append(write_failure(writer.db_writer, error))
     if failures:
         raise WriteError("; ".join(failures))
     return record
@@ -328,12 +333,12 @@ def main():
         out = directory                 # see file_writer.py header for format
         for _ in range("<out>/captures/<serial>/<cycle>/<run time>".count("/")):
             out = os.path.dirname(out)
-    writers = [FileDBWriter(out)]
+    writers = [local_writer(out)]
 
     if args.env:
         # imported only here, so rendering to files doesn't need the cloud packages installed
-        from gcp_writer import GCPConfig, GCPConnection, GCPDBWriter
-        writers.append(GCPDBWriter(GCPConnection(GCPConfig.from_env(args.env))))
+        from azure_writer import AzureConfig, create_azure_writer
+        writers.append(create_azure_writer(AzureConfig.from_env(args.env)))
         # the database links each dispense to its pump row, which may not be there yet. this is the pump as it
         # was when the capture was taken, so it can roll back newer details a later run saved
         write_pump(capture.pump, PumpAddress.parse(capture.address), writers)

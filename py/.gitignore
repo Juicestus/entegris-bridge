@@ -1,1 +1,5 @@
 __pycache__/
+legacy/cred.json
+legacy/*.cred.json
+cred.json
+*.cred.json

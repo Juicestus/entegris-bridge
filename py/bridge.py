@@ -15,7 +15,7 @@ from dataclasses import asdict
 
 import file_writer
 from extract import SAVE_CAPTURE, SAVE_COMMS, SAVE_OUTPUTS, Options, extract_pump
-from file_writer import FileDBWriter, write_json
+from file_writer import local_writer, write_json
 from pump_config import PumpTable
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -62,13 +62,14 @@ def main():
     except (OSError, ValueError) as error:
         print(f"  config: {error}")
         return 2
-    writers = [FileDBWriter(args.out)]
+    writers = [local_writer(args.out)]
     if not args.nopush:
         try:
             # imported only here, so a files only run doesn't need the cloud packages installed
-            from gcp_writer import GCPConfig, GCPConnection, GCPDBWriter
-            writers.append(GCPDBWriter(GCPConnection(GCPConfig.from_env(args.env))))
-        except (ImportError, OSError, KeyError) as error:
+            from azure_writer import AzureConfig, create_azure_writer
+            writers.append(create_azure_writer(AzureConfig.from_env(args.env)))
+        # anything from a missing package to a refused login, there's no cloud to push to either way
+        except Exception as error:
             print(f"  env: {type(error).__name__}: {error}")
             print("  --nopush to run with files only")
             return 2

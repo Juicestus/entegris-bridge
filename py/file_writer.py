@@ -15,7 +15,7 @@ import re
 
 import pandas as pd
 
-from writer_base import DBWriter
+from writer_base import DBWriter, StorageWriter, Writer
 
 TABLES_DIR_NAME = "tables"
 OBJECTS_DIR_NAME = "objects"
@@ -109,9 +109,18 @@ class FileDBWriter(DBWriter):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         write_json(path, row)
 
+
+class FileStorageWriter(StorageWriter):
+    def __init__(self, out):
+        self.out = out
+
     def write_obj(self, path: str, data: pd.DataFrame):
         full_path = object_path(self.out, path)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
         data.to_csv(full_path, index=False, lineterminator="\n")
         # relative to the output folder, so the folder can be moved or zipped without breaking the link
         return os.path.relpath(full_path, self.out).replace(os.sep, "/")
+
+
+def local_writer(out):
+    return Writer(FileDBWriter(out), FileStorageWriter(out))

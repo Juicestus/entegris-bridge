@@ -9,3 +9,4 @@ google-auth
 google-cloud-storage
 cloud-sql-python-connector[pg8000]
 pg8000
+azure-storage-blob
