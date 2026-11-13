@@ -66,8 +66,8 @@ def main():
     if not args.nopush:
         try:
             # imported only here, so a files only run doesn't need the cloud packages installed
-            from azure_writer import AzureConfig, create_azure_writer
-            writers.append(create_azure_writer(AzureConfig.from_env(args.env)))
+            from azure_writer import AzureConfig, create_azure_api_writer
+            writers.append(create_azure_api_writer(AzureConfig.from_env(args.env)))
         # anything from a missing package to a refused login, there's no cloud to push to either way
         except Exception as error:
             print(f"  env: {type(error).__name__}: {error}")

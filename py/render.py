@@ -337,8 +337,8 @@ def main():
 
     if args.env:
         # imported only here, so rendering to files doesn't need the cloud packages installed
-        from azure_writer import AzureConfig, create_azure_writer
-        writers.append(create_azure_writer(AzureConfig.from_env(args.env)))
+        from azure_writer import AzureConfig, create_azure_api_writer
+        writers.append(create_azure_api_writer(AzureConfig.from_env(args.env)))
         # the database links each dispense to its pump row, which may not be there yet. this is the pump as it
         # was when the capture was taken, so it can roll back newer details a later run saved
         write_pump(capture.pump, PumpAddress.parse(capture.address), writers)

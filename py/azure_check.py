@@ -24,6 +24,7 @@ import pg8000.dbapi
 from azure.core.exceptions import ClientAuthenticationError, HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import ContainerClient
 
+from api_writer import CHECK_PATH, KEY_HEADER
 from azure_writer import OBJECT_EXTENSION, AzureBlobStorageWriter, AzureConfig, create_azure_writer
 from postgres_writer import TEST_PATH, check_database
 from util import issuer, local_ip, package_version, unverified
@@ -45,6 +46,9 @@ PG_BAD_PASSWORD = "28P01"
 PG_NOT_ALLOWED = "28000"
 # what Azure Storage answers when its own firewall turns the request away
 STORAGE_NOT_ALLOWED = "AuthorizationFailure"
+HTTP_UNAUTHORIZED = 401
+# long enough for the proxy to wake up if its host put it to sleep
+API_TIMEOUT_SEC = 60
 # what kind of problem a hint points at, so whoever reads it knows who to take it to
 NETWORK = "network"
 SETTINGS = "settings"
@@ -195,6 +199,23 @@ def check_container(cfg):
     return f"{uri} written, read back and deleted"
 
 
+def check_api(cfg):
+    """
+    The proxy answers, takes the key and can reach the database itself, without writing anything.
+    """
+    request = urllib.request.Request(cfg.api_url.rstrip("/") + CHECK_PATH, headers={KEY_HEADER: cfg.api_key})
+    try:
+        with urllib.request.urlopen(request, timeout=API_TIMEOUT_SEC) as response:
+            response.read()
+    except urllib.error.HTTPError as error:
+        detail = first_line(error.read().decode(errors="replace"))
+        if error.code == HTTP_UNAUTHORIZED:
+            raise Failure(detail, f"{SETTINGS}: API_KEY in cred.env doesn't match the proxy's") from error
+        raise Failure(f"{error.code} {detail}", f"{SETTINGS}: the proxy answers but can't write to the database") \
+            from error
+    return f"{cfg.api_url} reaches the database"
+
+
 def check_login(cfg, opened):
     try:
         opened.append(create_azure_writer(cfg))
@@ -245,6 +266,11 @@ def main():
     report.step(storage_host, check_host, storage_host, HTTPS_PORT)
     report.step(f"database {cfg.port}", check_host, cfg.host, cfg.port, True)
     report.step("container", check_container, cfg)
+    if cfg.api_url:
+        api = urlsplit(cfg.api_url)
+        if api.scheme == "https":
+            report.step(api.hostname, check_host, api.hostname, api.port or HTTPS_PORT)
+        report.step("api", check_api, cfg)
 
     opened = []
     report.step("database login", check_login, cfg, opened)
